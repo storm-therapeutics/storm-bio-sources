@@ -37,7 +37,7 @@ public class DepmapCnvConverter extends BioDirectoryConverter
 {
     //
     private static final String DATASET_TITLE = "DepMap Copy Number";
-    private static final String DATA_SOURCE_NAME = "DepMap Public 19Q3";
+    private static final String DATA_SOURCE_NAME = "DepMap Public 20Q3";
 
     private static final String TAXON_ID = "9606"; // Human Taxon ID
 
@@ -50,6 +50,49 @@ public class DepmapCnvConverter extends BioDirectoryConverter
     private static final Logger LOG = Logger.getLogger(DepmapCnvConverter.class);
 
     private String organismIdentifier; // Not the taxon ID. It references the object that is created into the database.
+
+    // Methods to integrate the data only for a list of genes
+    private static final String GENE_LIST_FILE = "/data/storm/targets/storm_targets_symbols.csv";
+    private ArrayList<String> processGeneList(String geneListFile) throws Exception {
+        File geneListF = new File(geneListFile);
+
+        Iterator<?> lineIter = FormattedTextParser.parseCsvDelimitedReader(new FileReader(geneListF));
+        ArrayList<String> geneListArray = new ArrayList<String>();
+
+        while (lineIter.hasNext()) {
+            String[] line = (String[]) lineIter.next();
+            String gene = line[0];
+            if(StringUtils.isEmpty(gene)) {
+                continue;
+            }
+
+            String resolvedGeneIdentifier = getGeneIdentifier(gene);
+            if(resolvedGeneIdentifier != null) {
+                geneListArray.add(resolvedGeneIdentifier);
+            }
+        }
+
+        return geneListArray;
+    }
+
+    private String getGeneIdentifier(String geneSymbol) throws ObjectStoreException {
+        String resolvedIdentifier = resolveGene(geneSymbol);
+        if (StringUtils.isEmpty(resolvedIdentifier)) {
+            return null;
+        }
+        String geneId = genes.get(resolvedIdentifier);
+        if (geneId == null) {
+            Item gene = createItem("Gene");
+            gene.setAttribute("primaryIdentifier", resolvedIdentifier);
+            //gene.setAttribute("symbol", primaryIdentifier);
+            //gene.setReference("organism", getOrganism(TAXON_ID));
+            store(gene);
+            geneId = gene.getIdentifier();
+            genes.put(resolvedIdentifier, geneId);
+        }
+        return geneId;
+    }
+    //
 
     /**
      * Constructor
@@ -69,7 +112,12 @@ public class DepmapCnvConverter extends BioDirectoryConverter
 
         organismIdentifier = getOrganism(TAXON_ID);
 
-        processCopyNumber(new FileReader(files.get(CN_CSV_FILE)));
+        ArrayList<String> geneListArray = new ArrayList<String>();
+        if(!StringUtils.isEmpty(GENE_LIST_FILE)) {
+            geneListArray = processGeneList(GENE_LIST_FILE);
+        }
+
+        processCopyNumber(new FileReader(files.get(CN_CSV_FILE)), geneListArray);
 
     }
 
@@ -81,7 +129,7 @@ public class DepmapCnvConverter extends BioDirectoryConverter
         return files;
     }
 
-    private void processCopyNumber(Reader reader) throws ObjectStoreException, IOException {
+    private void processCopyNumber(Reader reader, ArrayList<String> geneList) throws ObjectStoreException, IOException {
         Iterator<?> lineIter = FormattedTextParser.parseCsvDelimitedReader(reader);
         // header
         String[] firstLine = (String[]) lineIter.next();
@@ -92,25 +140,41 @@ public class DepmapCnvConverter extends BioDirectoryConverter
         }
 
         //lineIter.next();
+
         while (lineIter.hasNext()) {
             String[] line = (String[]) lineIter.next();
 
             String cellLine = line[0];
+
             for(int i = 1; i < line.length; i++) {
                 String cnvValue = line[i];
                 String theGeneForThisItem = genes.get(i-1);
+
+                if(!geneList.isEmpty()) {
+                    String resolvedGene = getGeneIdentifier(theGeneForThisItem);
+                    if(!geneList.contains(resolvedGene)) {
+                        continue;
+                    }
+                }
+
                 Item CopyNumberItem;
 
                 CopyNumberItem = createItem("DepMapCopyNumber");
 
+
                 if(!cellLine.isEmpty()) {
-                    CopyNumberItem.setReference("depMapID", getCellLine(cellLine));
+                    CopyNumberItem.setReference("cellLine", getCellLine(cellLine));
                 } else {
                     continue;
                 }
 
                 if(!theGeneForThisItem.isEmpty()) {
-                    String geneId = getGeneId(theGeneForThisItem);
+                    String geneId = "";
+                    try {
+                        geneId = getGeneId(theGeneForThisItem);
+                    } catch (IllegalArgumentException e) {
+                        continue;
+                    }
 
                     if (StringUtils.isEmpty(geneId)) {
                         continue;
@@ -121,31 +185,34 @@ public class DepmapCnvConverter extends BioDirectoryConverter
                     continue;
                 }
 
-                if(!cnvValue.isEmpty() && StringUtils.isNumeric(cnvValue)) {
+                if(!cnvValue.isEmpty()) {
+                    Double cnvValueDouble = Double.valueOf(cnvValue);
+
                     CopyNumberItem.setAttribute("DepmapCnvValue", cnvValue);
+
+                    store(CopyNumberItem);
                 } else {
                     continue;
                 }
-
-                store(CopyNumberItem);
                 //cellLines.put(cellLine, CopyNumberItem.getIdentifier());
             }
         }
     }
 
-    private String getGeneId(String symbol) throws ObjectStoreException {
-        //String resolvedIdentifier = resolveGene(primaryIdentifier);
-        /*if (StringUtils.isEmpty(resolvedIdentifier)) {
+    private String getGeneId(String primaryIdentifier) throws ObjectStoreException {
+        String resolvedIdentifier = resolveGene(primaryIdentifier);
+        if (StringUtils.isEmpty(resolvedIdentifier)) {
             return null;
-        }*/
-        String geneId = genes.get(symbol);
+        }
+        String geneId = genes.get(resolvedIdentifier);
         if (geneId == null) {
             Item gene = createItem("Gene");
-            gene.setAttribute("symbol", symbol);
-            gene.setReference("organism", getOrganism(TAXON_ID));
+            gene.setAttribute("primaryIdentifier", resolvedIdentifier);
+            //gene.setAttribute("symbol", primaryIdentifier);
+            //gene.setReference("organism", getOrganism(TAXON_ID));
             store(gene);
             geneId = gene.getIdentifier();
-            genes.put(symbol, geneId);
+            genes.put(resolvedIdentifier, geneId);
         }
         return geneId;
     }
@@ -175,6 +242,8 @@ public class DepmapCnvConverter extends BioDirectoryConverter
                 store(cl);
             } catch (ObjectStoreException e) {
                 throw new RuntimeException("failed to store cell line with DepMapID: " + identifier, e);
+            } catch (IllegalArgumentException e) {
+                //
             }
             refId = cl.getIdentifier();
             cellLines.put(identifier, refId);

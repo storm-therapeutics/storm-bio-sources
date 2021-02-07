@@ -33,7 +33,7 @@ public class DepmapSampleInfoConverter extends BioDirectoryConverter
 {
     //
     private static final String DATASET_TITLE = "DepMap Sample Info";
-    private static final String DATA_SOURCE_NAME = "DepMap Public 19Q3";
+    private static final String DATA_SOURCE_NAME = "DepMap Public 20Q3";
 
     private static final String TAXON_ID = "9606"; // Human Taxon ID
 
@@ -89,16 +89,16 @@ public class DepmapSampleInfoConverter extends BioDirectoryConverter
             }
 
             String CCLEname = line[2];
-            String Lineage = line[5];
-            String LineageSubtype = line[6];
-            String LineageSubsubtype = line[7];
-            String Sex = line[8];
-            String PrimaryOrMetastasis = line[17];
-            String Disease = line[18];
-            String DiseaseSubtype = line[19];
+            String Lineage = line[21];
+            String LineageSubtype = line[22];
+            String LineageSubsubtype = line[23];
+            String Sex = line[5];
+            String PrimaryOrMetastasis = line[14];
+            String Disease = line[15];
+            String DiseaseSubtype = line[16];
             String Age = "Not specified";
-            if(!line[20].isEmpty()) {
-                Age = Double.toString(Math.floor(Double.valueOf(line[20])));
+            if(!line[17].isEmpty()) {
+                Age = Double.toString(Math.floor(Double.valueOf(line[17])));
             }
 
             if(Lineage.isEmpty()) {
