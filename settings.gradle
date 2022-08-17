@@ -9,6 +9,8 @@ include ':bio-source-depmap-expression'
 project(':bio-source-depmap-expression').projectDir = new File(settingsDir, './depmap-expression')
 include ':bio-source-depmap-achilles-gene-effect'
 project(':bio-source-depmap-achilles-gene-effect').projectDir = new File(settingsDir, './depmap-achilles-gene-effect')
+include ':bio-source-depmap-crispr-gene-effect'
+project(':bio-source-depmap-crispr-gene-effect').projectDir = new File(settingsDir, './depmap-crispr-gene-effect')
 include ':bio-source-depmap-ccle-mutations'
 project(':bio-source-depmap-ccle-mutations').projectDir = new File(settingsDir, './depmap-ccle-mutations')
 include ':bio-source-tcga-sample-metadata'
@@ -41,3 +43,5 @@ include ':bio-source-storm-aelian-data-converter'
 project(':bio-source-storm-aelian-data-converter').projectDir = new File(settingsDir, './storm-aelian-data-converter')
 include ':bio-source-aelian_example_converter'
 project(':bio-source-aelian_example_converter').projectDir = new File(settingsDir, './aelian_example_converter')
+include ':bio-source-depmap-crispr-gene-effect'
+project(':bio-source-depmap-crispr-gene-effect').projectDir = new File(settingsDir, './depmap-crispr-gene-effect')
