@@ -10,8 +10,8 @@ package org.intermine.bio.dataconversion;
  *
  */
 
-// import java.io.File;
-// import java.io.FileReader;
+import java.io.File;
+import java.io.FileReader;
 import java.io.Reader;
 import java.util.Iterator;
 import java.util.Set;
@@ -27,19 +27,18 @@ import org.intermine.xml.full.Item;
  * Read CRISPR gene effect data from DepMap
  * @author Hendrik Weisser
  */
-public class DepmapCrisprGeneEffectConverter extends BioFileConverter // BioDirectoryConverter
+public class DepmapCrisprGeneEffectConverter extends BioDirectoryConverter
 {
     //
     private static final String DATASET_TITLE = "CRISPR (Chronos) gene effect scores";
     private static final String DATA_SOURCE_NAME = "DepMap";
+    private static final String INPUT_FILE_NAME = "CRISPR_gene_effect.csv";
 
-    // private static final String HUMAN_TAXON_ID = "9606";
+    private static final String HUMAN_TAXON_ID = "9606";
 
-    // private static final Logger LOG = Logger.getLogger(DepmapCrisprGeneEffectConverter.class);
+    private static final Logger LOG = Logger.getLogger(DepmapCrisprGeneEffectConverter.class);
 
-    // protected IdResolver resolver;
-
-    // private String[] geneIds;
+    protected IdResolver resolver;
 
     /**
      * Constructor
@@ -48,11 +47,9 @@ public class DepmapCrisprGeneEffectConverter extends BioFileConverter // BioDire
      */
     public DepmapCrisprGeneEffectConverter(ItemWriter writer, Model model) {
         super(writer, model, DATA_SOURCE_NAME, DATASET_TITLE);
-    //     LOG.info("init base class");
-    //     if (resolver == null) {
-    //         resolver = IdResolverService.getIdResolverByOrganism(HUMAN_TAXON_ID);
-    //     }
-    //     LOG.info("init resolver");
+        if (resolver == null) {
+            resolver = IdResolverService.getIdResolverByOrganism(HUMAN_TAXON_ID);
+        }
     }
 
     /**
@@ -60,64 +57,73 @@ public class DepmapCrisprGeneEffectConverter extends BioFileConverter // BioDire
      *
      * {@inheritDoc}
      */
-    @Override
-    public void process(Reader reader) throws Exception {
-    // public void process(File dataDir) throws Exception {
-        // LOG.info("start process");
+    public void process(File dataDir) throws Exception {
+        FileReader reader = new FileReader(new File(dataDir, INPUT_FILE_NAME));
+        Iterator<String[]> lineIter = FormattedTextParser.parseCsvDelimitedReader(reader);
+        String[] header = lineIter.next();
+        if (!header[0].equals("DepMap_ID")) {
+            throw new RuntimeException("Unexpected item at start of input file");
+        }
 
-        // FileReader reader = new FileReader(new File(dataDir, "CRISPR_gene_effect.csv"));
-        // Iterator<String[]> lineIter = FormattedTextParser.parseCsvDelimitedReader(reader);
-        // LOG.info("parse file");
-        // String[] header = lineIter.next();
-        // if (!header[0].equals("DepMap_ID")) {
-        //     throw new RuntimeException("Unexpected item at start of input file");
-        // }
+        // String[] geneIds = new String[header.length - 1];
+        Item[] geneItems = new Item[header.length - 1];
 
-        // geneIds = new String[header.length - 1];
+        int maxIter = header.length;
+        for (int i = 1; i < maxIter; i++) {
+            String[] parts = header[i].split(" ");
+            if ((parts.length != 2) || (!parts[1].startsWith("(")) || (!parts[1].endsWith(")"))) {
+                throw new RuntimeException("Unexpected item format in header: " + header[i]);
+            }
+            String geneSymbol = parts[0];
+            String genePrimaryId = parts[1].substring(1, parts[1].length() - 1);
 
-        // for (int i = 1; i < 11; i++) { // header.length; i++) {
-        //     String[] parts = header[i].split(" ");
-        //     if ((parts.length != 2) || (!parts[1].startsWith("(")) || (!parts[1].endsWith(")"))) {
-        //         throw new RuntimeException("Unexpected item format in header: " + header[i]);
-        //     }
-        //     String geneSymbol = parts[0];
-        //     String geneId = parts[1].substring(1, parts[1].length() - 1);
+            // check if gene with this NCBI ID (number) exists:
+            if (!resolver.isPrimaryIdentifier(HUMAN_TAXON_ID, "gene", genePrimaryId)) {
+                LOG.info("No such gene found (by primary ID): " + header[i] + " - skipping");
+                continue;
+            }
+            // check if NCBI ID (number) and gene symbol match:
+            Set<String> resolvedIds = resolver.resolveId(HUMAN_TAXON_ID, "gene", geneSymbol);
+            if (resolvedIds.isEmpty()) {
+                LOG.info("No such gene found (by symbol): " + header[i] + " - skipping");
+                continue;
+            } else if (resolvedIds.size() > 1) {
+                LOG.info(resolvedIds.size() + " matches for gene symbol: " + header[i]);
+            }
+            String primaryId = resolvedIds.iterator().next();
 
-        //     // check if gene with this NCBI ID (number) exists:
-        //     if (!resolver.isPrimaryIdentifier(HUMAN_TAXON_ID, "gene", geneId)) {
-        //         LOG.info("No such gene found (by primary ID): " + header[i] + " - skipping");
-        //         continue;
-        //     }
-        //     String resolvedId1 = resolver.resolveId(HUMAN_TAXON_ID, "gene", geneId).iterator().next();
-        //     // check if NCBI ID (number) and gene symbol match:
-        //     Set<String> resolvedIds = resolver.resolveId(HUMAN_TAXON_ID, "gene", geneSymbol);
-        //     if (resolvedIds.isEmpty()) {
-        //         LOG.info("No such gene found (by symbol): " + header[i] + " - skipping");
-        //         continue;
-        //     } else if (resolvedIds.size() > 1) {
-        //         LOG.info(resolvedIds.size() + " matches for gene symbol: " + header[i]);
-        //     }
-        //     String resolvedId2 = resolvedIds.iterator().next();
-        //     LOG.info(header[i] + ": " + resolvedId1 + "/" + resolvedId2);
+            if (!primaryId.equals(genePrimaryId)) {
+                LOG.info("Primary ID/symbol mismatch for gene: " + header[i] + " - skipping");
+                continue;
+            }
 
-            // if (!primaryId.equals(geneId)) {
-            //     LOG.info("Primary ID/symbol mismatch for gene: " + header[i] + " - skipping");
-            //     continue;
-            // }
-            // geneIds[i - 1] = resolvedId; // all is fine with this gene
-        //  }
+            Item gene = createItem("Gene");
+            // String itemId = gene.getIdentifier();
+            gene.setAttribute("primaryIdentifier", primaryId);
+            gene.setAttribute("symbol", geneSymbol);
+            store(gene);
+            geneItems[i - 1] = gene;
+        }
 
-    //     while (lineIter.hasNext()) {
-    //         String[] line = lineIter.next();
-    //         if (line.length != header.length) {
-    //             throw new RuntimeException("Unexpected number of items per line");
-    //         }
+        while (lineIter.hasNext()) {
+            String[] line = lineIter.next();
+            if (line.length != header.length) {
+                throw new RuntimeException("Unexpected number of items per line");
+            }
 
-    //         String cellLine = line[0];
-    //         for (int i = 1; i < line.length; i++) {
-    //             String score = line[i];
-    //         }
-    //     }
+            Item cellLine = createItem("CellLine");
+            cellLine.setAttribute("DepMapID", line[0]);
+            store(cellLine);
 
+            for (int i = 1; i < maxIter; i++) {
+                if ((geneItems[i - 1] != null) && (!line[i].isEmpty())) {
+                    Item effect = createItem("DepMapCRISPRGeneEffect");
+                    effect.setReference("gene", geneItems[i - 1]);
+                    effect.setReference("cellLine", cellLine);
+                    effect.setAttribute("geneEffectScore", line[i]);
+                    store(effect);
+                }
+            }
+        }
     }
 }
