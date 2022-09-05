@@ -65,7 +65,6 @@ public class DepmapCrisprGeneEffectConverter extends BioDirectoryConverter
             throw new RuntimeException("Unexpected item at start of input file");
         }
 
-        // String[] geneIds = new String[header.length - 1];
         Item[] geneItems = new Item[header.length - 1];
 
         int maxIter = header.length;
@@ -79,28 +78,28 @@ public class DepmapCrisprGeneEffectConverter extends BioDirectoryConverter
 
             // check if gene with this NCBI ID (number) exists:
             if (!resolver.isPrimaryIdentifier(HUMAN_TAXON_ID, "gene", genePrimaryId)) {
-                LOG.info("No such gene found (by primary ID): " + header[i] + " - skipping");
+                LOG.warn("No such gene found (by primary ID): " + header[i] + " - skipping");
                 continue;
             }
             // check if NCBI ID (number) and gene symbol match:
             Set<String> resolvedIds = resolver.resolveId(HUMAN_TAXON_ID, "gene", geneSymbol);
-            if (resolvedIds.isEmpty()) {
-                LOG.info("No such gene found (by symbol): " + header[i] + " - skipping");
-                continue;
-            } else if (resolvedIds.size() > 1) {
-                LOG.info(resolvedIds.size() + " matches for gene symbol: " + header[i]);
+            if (resolvedIds.isEmpty()) { // no match
+                LOG.warn("No such gene found (by symbol): " + header[i]);
+                // @TODO: can we find out what the "other" symbol is (that matches the ID)?
             }
-            String primaryId = resolvedIds.iterator().next();
-
-            if (!primaryId.equals(genePrimaryId)) {
-                LOG.info("Primary ID/symbol mismatch for gene: " + header[i] + " - skipping");
-                continue;
+            else if (resolvedIds.size() > 1) { // multiple matches
+                LOG.warn(resolvedIds.size() + " matches for gene symbol: " + header[i]);
+            }
+            else { // one match
+                String primaryId = resolvedIds.iterator().next();
+                if (!primaryId.equals(genePrimaryId)) {
+                    LOG.warn("Primary ID/symbol mismatch for gene: " + header[i]);
+                }
             }
 
             Item gene = createItem("Gene");
-            // String itemId = gene.getIdentifier();
-            gene.setAttribute("primaryIdentifier", primaryId);
-            gene.setAttribute("symbol", geneSymbol);
+            gene.setAttribute("primaryIdentifier", genePrimaryId);
+            // @TODO: what happens if we set the symbol and it doesn't match (see case above)?
             store(gene);
             geneItems[i - 1] = gene;
         }
