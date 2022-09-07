@@ -24,19 +24,19 @@ import org.intermine.util.FormattedTextParser;
 import org.intermine.xml.full.Item;
 
 /**
- * Read CRISPR gene effect data from DepMap
+ * Read data from DepMap/CCLE in simple matrix format
  * @author Hendrik Weisser
  */
-public class DepmapCrisprGeneEffectConverter extends BioDirectoryConverter
+public class DepmapCcleMatrixConverter extends BioDirectoryConverter
 {
     //
-    private static final String DATASET_TITLE = "CRISPR (Chronos) gene effect scores";
+    private static final String DATASET_TITLE = "DepMap/CCLE data";
     private static final String DATA_SOURCE_NAME = "DepMap";
     private static final String INPUT_FILE_NAME = "CRISPR_gene_effect.csv";
 
     private static final String HUMAN_TAXON_ID = "9606";
 
-    private static final Logger LOG = Logger.getLogger(DepmapCrisprGeneEffectConverter.class);
+    private static final Logger LOG = Logger.getLogger(DepmapCcleMatrixConverter.class);
 
     protected IdResolver resolver;
 
@@ -45,7 +45,7 @@ public class DepmapCrisprGeneEffectConverter extends BioDirectoryConverter
      * @param writer the ItemWriter used to handle the resultant items
      * @param model the Model
      */
-    public DepmapCrisprGeneEffectConverter(ItemWriter writer, Model model) {
+    public DepmapCcleMatrixConverter(ItemWriter writer, Model model) {
         super(writer, model, DATA_SOURCE_NAME, DATASET_TITLE);
         if (resolver == null) {
             resolver = IdResolverService.getIdResolverByOrganism(HUMAN_TAXON_ID);
@@ -116,10 +116,10 @@ public class DepmapCrisprGeneEffectConverter extends BioDirectoryConverter
 
             for (int i = 1; i < maxIter; i++) {
                 if ((geneItems[i - 1] != null) && (!line[i].isEmpty())) {
-                    Item effect = createItem("DepMapCRISPRGeneEffect");
+                    Item effect = createItem("DepMapCCLEData");
                     effect.setReference("gene", geneItems[i - 1]);
                     effect.setReference("cellLine", cellLine);
-                    effect.setAttribute("geneEffectScore", line[i]);
+                    effect.setAttribute("crisprGeneEffect", line[i]);
                     store(effect);
                 }
             }
