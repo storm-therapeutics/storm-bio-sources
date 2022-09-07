@@ -2,15 +2,17 @@
 <!-- This file details any extensions needed to the data model to store data from this source, everything else is automatically generated from the model description so this is all we need to do to add to the model. -->
 
 <classes>
-    <class name="DepMapCRISPRGeneEffect" is-interface="true">
-        <reference name="cellLine" referenced-type="CellLine" reverse-reference="depMapCRISPRGeneEffects"/>
-        <reference name="gene" referenced-type="Gene" reverse-reference="depMapCRISPRGeneEffects"/>
-        <attribute name="geneEffectScore" type="java.lang.Double"/>
+    <class name="DepMapCCLEData" is-interface="true">
+        <reference name="cellLine" referenced-type="CellLine" reverse-reference="depMapCCLEData"/>
+        <reference name="gene" referenced-type="Gene" reverse-reference="depMapCCLEData"/>
+        <attribute name="crisprGeneEffect" type="java.lang.Double"/>
+        <attribute name="geneExpression" type="java.lang.Double"/>
+        <attribute name="copyNumber" type="java.lang.Double"/>
     </class>
     <class name="Gene" is-interface="true" extends="BioEntity">
-        <collection name="depMapCRISPRGeneEffects" referenced-type="DepMapCRISPRGeneEffect" reverse-reference="gene"/>
+        <collection name="depMapCCLEData" referenced-type="DepMapCCLEData" reverse-reference="gene"/>
     </class>
     <class name="CellLine" is-interface="true" extends="BioEntity">
-        <collection name="depMapCRISPRGeneEffects" referenced-type="DepMapCRISPRGeneEffect" reverse-reference="cellLine"/>
+        <collection name="depMapCCLEData" referenced-type="DepMapCCLEData" reverse-reference="cellLine"/>
     </class>
 </classes>
