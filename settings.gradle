@@ -43,3 +43,5 @@ include ':bio-source-aelian_example_converter'
 project(':bio-source-aelian_example_converter').projectDir = new File(settingsDir, './aelian_example_converter')
 include ':bio-source-depmap-crispr-gene-effect'
 project(':bio-source-depmap-crispr-gene-effect').projectDir = new File(settingsDir, './depmap-crispr-gene-effect')
+include ':bio-source-storm-proteomics'
+project(':bio-source-storm-proteomics').projectDir = new File(settingsDir, './storm-proteomics')
