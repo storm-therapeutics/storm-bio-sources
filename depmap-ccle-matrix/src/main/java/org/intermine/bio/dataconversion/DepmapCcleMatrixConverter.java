@@ -14,8 +14,12 @@ import java.io.File;
 import java.io.FileReader;
 import java.io.Reader;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Iterator;
+import java.util.Map;
 import java.util.Set;
+// @TODO: replace with javafx.util.Pair (requires additional dependency)?
+import java.util.AbstractMap.SimpleEntry;
 
 import org.apache.log4j.Logger;
 
@@ -44,6 +48,9 @@ public class DepmapCcleMatrixConverter extends BioDirectoryConverter
     protected String headerStart = "";
     protected boolean idsArePrimary = false;
 
+    // genes corresponding to columns in the data matrix; null if gene not found:
+    protected Item[] geneItems;
+
     /**
      * Constructor
      * @param writer the ItemWriter used to handle the resultant items
@@ -70,19 +77,15 @@ public class DepmapCcleMatrixConverter extends BioDirectoryConverter
         }
         FileReader reader = new FileReader(new File(dataDir, inputFile));
         Iterator<String[]> lineIter = FormattedTextParser.parseCsvDelimitedReader(reader);
+
+        // parse header with gene symbols and IDs:
         String[] header = lineIter.next();
         if (!header[0].equals(headerStart)) {
             throw new RuntimeException("Unexpected item at start of input file");
         }
+        parseGenes(header); // fills 'geneItems'
 
-        Item[] geneItems = new Item[header.length - 1];
-
-        int maxIter = header.length;
-        for (int i = 1; i < maxIter; i++) {
-            Item gene = parseGene(header[i]); // null if gene not found
-            geneItems[i - 1] = gene;
-        }
-
+        // parse rows with cell line data:
         while (lineIter.hasNext()) {
             String[] line = lineIter.next();
             if (line.length != header.length) {
@@ -93,7 +96,7 @@ public class DepmapCcleMatrixConverter extends BioDirectoryConverter
             cellLine.setAttribute("DepMapID", line[0]);
             store(cellLine);
 
-            for (int i = 1; i < maxIter; i++) {
+            for (int i = 1; i < header.length; i++) {
                 if ((geneItems[i - 1] != null) && (!line[i].isEmpty())) {
                     Item dataItem = createItem("DepMapCCLEData");
                     dataItem.setReference("gene", geneItems[i - 1]);
@@ -106,72 +109,117 @@ public class DepmapCcleMatrixConverter extends BioDirectoryConverter
     }
 
 
-    private Item parseGene(String headerItem) throws ObjectStoreException {
-        String regExp1 = "[^ ]+ \\(\\d+\\)"; // expected format: "symbol (ID)"
-        String regExp2 = "([^ ]+ \\()?ENSG\\d+\\)?"; // as above, or just ID
-        if ((idsArePrimary && !headerItem.matches(regExp1)) ||
-            (!idsArePrimary && !headerItem.matches(regExp2))) {
-            throw new RuntimeException("Unexpected item format in header: " + headerItem);
-        }
-        // use the ID (NCBI or Ensembl) from the header to resolve the gene,
-        // but also look up the symbol as a consistency check:
-        String[] parts = headerItem.split(" ");
-        String geneId;
-        Set<String> resolvedFromSymbol = Collections.emptySet();
-        if (parts.length == 2) {
-            geneId = parts[1].substring(1, parts[1].length() - 1);
-            String geneSymbol = parts[0];
-            resolvedFromSymbol = resolver.resolveId(HUMAN_TAXON_ID, "gene", geneSymbol);
-            if (resolvedFromSymbol.isEmpty()) { // no match
-                LOG.info("Resolving gene '" + headerItem + "' by symbol: not found");
-            }
-            else if (resolvedFromSymbol.size() > 1) { // multiple matches
-                LOG.info("Resolving gene '" + headerItem + "' by symbol: " + resolvedFromSymbol.size() + " matches");
-            }
-        }
-        else {
-            geneId = parts[0];
-        }
-
+    private void parseGenes(String[] header) throws ObjectStoreException {
+        String regExp;
         if (idsArePrimary) {
-            // check if gene with this NCBI ID (number) exists:
-            if (!resolver.isPrimaryIdentifier(HUMAN_TAXON_ID, "gene", geneId)) {
-                LOG.warn("Resolving gene '" + headerItem + "' by primary identifier: not found - skipping");
-                return null;
-            }
-            if (!resolvedFromSymbol.isEmpty() && !resolvedFromSymbol.contains(geneId)) {
-                LOG.info("Resolving gene '" + headerItem + "': primary identifier/symbol mismatch");
-            }
+            regExp = "[^ ]+ \\(\\d+\\)"; // expected format: "symbol (ID)"
         }
         else {
-            Set<String> resolvedFromId = resolver.resolveId(HUMAN_TAXON_ID, "gene", geneId);
-            if (resolvedFromId.isEmpty()) { // no match
-                LOG.warn("Resolving gene '" + headerItem + "' by secondary identifier: not found - skipping");
-                return null;
+            regExp = "([^ ]+ \\()?ENSG\\d+\\)?"; // as above, or just "ID"
+        }
+        geneItems = new Item[header.length - 1]; // first column is row names
+        // mapping: gene primary id. -> column index, supported by symbol?
+        // (to detect "collisions" of column names mapping to the same primary id.)
+        Map<String, SimpleEntry<Integer, Boolean>> primaryIdMap = new HashMap<>();
+
+        for (int i = 1; i < header.length; i++) {
+            String colName = header[i];
+            if (!colName.matches(regExp)) {
+                throw new RuntimeException("Unexpected format for column name: " + colName);
             }
-            else if (resolvedFromId.size() == 1) {
-                geneId = resolvedFromId.iterator().next();
-                if (!resolvedFromSymbol.isEmpty() && !resolvedFromSymbol.contains(geneId)) {
-                    LOG.info("Resolving gene '" + headerItem + "': secondary identifier/symbol mismatch");
+            // use the ID (NCBI or Ensembl) from the header to resolve the gene,
+            // but also look up the symbol as a consistency check:
+            String[] parts = colName.split(" ");
+            String geneId;
+            Set<String> resolvedFromSymbol = Collections.emptySet();
+            if (parts.length == 2) {
+                geneId = parts[1].substring(1, parts[1].length() - 1);
+                String geneSymbol = parts[0];
+                resolvedFromSymbol = resolver.resolveId(HUMAN_TAXON_ID, "gene", geneSymbol);
+                if (resolvedFromSymbol.isEmpty()) { // no match
+                    LOG.info("Resolving gene '" + colName + "' by symbol: not found");
+                }
+                else if (resolvedFromSymbol.size() > 1) { // multiple matches
+                    LOG.info("Resolving gene '" + colName + "' by symbol: " + resolvedFromSymbol.size() + " matches");
                 }
             }
-            else if (resolvedFromId.size() > 1) { // multiple matches
-                LOG.info("Resolving gene '" + headerItem + "' by secondary identifier: " + resolvedFromId.size() + " matches");
-                if (!resolvedFromSymbol.isEmpty()) { // try matching by symbol and identifier
-                    resolvedFromId.retainAll(resolvedFromSymbol); // intersect
+            else {
+                geneId = parts[0];
+            }
+            boolean symbolMatches = false; // do gene resolution by symbol and by ID agree?
+            if (idsArePrimary) {
+                // check if gene with this NCBI ID (number) exists:
+                if (!resolver.isPrimaryIdentifier(HUMAN_TAXON_ID, "gene", geneId)) {
+                    LOG.warn("Resolving gene '" + colName + "' by primary identifier: not found - skipping");
+                    continue;
                 }
-                if (resolvedFromId.size() != 1) {
-                    LOG.warn("Resolving gene '" + headerItem + "' by secondary identifier and symbol: failed (not found or not unique) - skipping");
-                    return null;
+                if (!resolvedFromSymbol.isEmpty()) {
+                    if (resolvedFromSymbol.contains(geneId)) {
+                        symbolMatches = true;
+                    }
+                    else {
+                        LOG.info("Resolving gene '" + colName + "': primary identifier/symbol mismatch");
+                    }
                 }
-                geneId = resolvedFromId.iterator().next();
+            }
+            else { // IDs are secondary identifiers
+                Set<String> resolvedFromId = resolver.resolveId(HUMAN_TAXON_ID, "gene", geneId);
+                if (resolvedFromId.isEmpty()) { // no match
+                    LOG.warn("Resolving gene '" + colName + "' by secondary identifier: not found - skipping");
+                    continue;
+                }
+                else if (resolvedFromId.size() == 1) {
+                    geneId = resolvedFromId.iterator().next();
+                    if (!resolvedFromSymbol.isEmpty()) {
+                        if (resolvedFromSymbol.contains(geneId)) {
+                            symbolMatches = true;
+                        }
+                        else {
+                            LOG.info("Resolving gene '" + colName + "': secondary identifier/symbol mismatch");
+                        }
+                    }
+                }
+                else { // multiple matches
+                    LOG.info("Resolving gene '" + colName + "' by secondary identifier: " +
+                             resolvedFromId.size() + " matches");
+                    if (!resolvedFromSymbol.isEmpty()) { // try matching by symbol and identifier
+                        resolvedFromId.retainAll(resolvedFromSymbol); // intersect
+                    }
+                    if (resolvedFromId.size() != 1) {
+                        LOG.warn("Resolving gene '" + colName + "' by secondary identifier and symbol: failed (not found or not unique) - skipping");
+                        continue;
+                    }
+                    symbolMatches = true;
+                    geneId = resolvedFromId.iterator().next();
+                }
+            }
+
+            // complication: multiple columns can map to the same primary identifier
+            // -> if available, one where both ID and symbol match takes precedence
+            SimpleEntry<Integer, Boolean> entry = primaryIdMap.get(geneId);
+            if (entry == null) { // first match to this primary identifier
+                Item gene = createItem("Gene");
+                gene.setAttribute("primaryIdentifier", geneId);
+                store(gene);
+                geneItems[i - 1] = gene;
+                primaryIdMap.put(geneId, new SimpleEntry(i - 1, symbolMatches));
+            }
+            else { // collision
+                int otherIndex = entry.getKey();
+                if (!entry.getValue() && symbolMatches) { // new entry takes precedence
+                    LOG.warn("Multiple matches to gene with primary identifier '" + geneId + "': " +
+                             header[otherIndex + 1] + " - skipping, " + colName + " - keeping");
+                    // swap entries in gene list:
+                    geneItems[i - 1] = geneItems[otherIndex];
+                    geneItems[otherIndex] = null;
+                    primaryIdMap.replace(geneId, new SimpleEntry(i - 1, true));
+                }
+                else { // keep old entry, skip current column
+                    LOG.warn("Multiple matches to gene with primary identifier '" + geneId + "': " +
+                             header[otherIndex + 1] + " - keeping, " + colName + " - skipping");
+                }
             }
         }
-
-        Item gene = createItem("Gene");
-        gene.setAttribute("primaryIdentifier", geneId);
-        store(gene);
-        return gene;
     }
 
 
