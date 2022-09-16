@@ -75,7 +75,9 @@ public class DepmapCcleMatrixConverter extends BioDirectoryConverter
         if (outputAttribute == null) {
             throw new RuntimeException("Output attribute (of class 'DepMapCCLEData') not defined. Set property 'output.attribute' in project.xml.");
         }
-        FileReader reader = new FileReader(new File(dataDir, inputFile));
+        File inputPath = new File(dataDir, inputFile);
+        LOG.info("Processing DepMap/CCLE input file: " + inputPath);
+        FileReader reader = new FileReader(inputPath);
         Iterator<String[]> lineIter = FormattedTextParser.parseCsvDelimitedReader(reader);
 
         // parse header with gene symbols and IDs:
