@@ -2,6 +2,19 @@
 <!-- This file details any extensions needed to the data model to store data from this source, everything else is automatically generated from the model description so this is all we need to do to add to the model. -->
 
 <classes>
-<!-- add any <class> elements here -->
-
+  <class name="StormProteomicsExperiment" is-interface="true">
+    <attribute name="shortName" type="java.lang.String"/>
+    <collection name="samples" referenced-type="StormProteomicsSample" reverse-reference="experiment"/>
+  </class>
+  <class name="StormProteomicsSample" is-interface="true">
+    <attribute name="name" type="java.lang.String"/>
+    <reference name="experiment" referenced-type="StormProteomicsExperiment" reverse-reference="samples"/>
+    <collection name="abundances" referenced-type="ProteinLFQAbundance" reverse-reference="sample"/>
+  </class>
+  <class name="ProteinLFQAbundance" is-interface="true">
+    <attribute name="abundance" type="java.lang.Double"/>
+    <reference name="sample" referenced-type="StormProteomicsSample" reverse-reference="abundances"/>
+    <!-- TODO: add reverse reference in Protein class? -->
+    <reference name="protein" referenced-type="Protein"/>
+  </class>
 </classes>
