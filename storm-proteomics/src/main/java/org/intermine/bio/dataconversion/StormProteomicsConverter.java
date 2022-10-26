@@ -18,6 +18,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.AbstractMap.SimpleEntry; // pair class
 
 import org.apache.log4j.Logger;
 
@@ -240,6 +241,18 @@ public class StormProteomicsConverter extends BioDirectoryConverter
                                            header[i]);
             }
         }
+        // "Label" column contains conditions (treatment/control) separated by "-";
+        // since "-" may also occur in condition names, splitting doesn't work;
+        // -> generate all possible pairs and perform look-up:
+        Map<String, SimpleEntry<String, String>> conditionPairs = new HashMap<>();
+        for (String treatment : conditions.keySet()) {
+            for (String control : conditions.keySet()) {
+                if (!treatment.equals(control)) {
+                    SimpleEntry<String, String> pair = new SimpleEntry(treatment, control);
+                    conditionPairs.put(treatment + "-" + control, pair);
+                }
+            }
+        }
         while (lineIter.hasNext()) {
             String[] line = lineIter.next();
             if (line.length != header.length) {
@@ -261,12 +274,12 @@ public class StormProteomicsConverter extends BioDirectoryConverter
             result.setReference("proteinGroup", group);
             // TODO: what if condition names contain "-"?
             // (generate all possible pairs and perform look-up?)
-            String[] conditionNames = line[1].split("-");
-            if (conditionNames.length != 2) {
-                throw new RuntimeException("Failed to split 'Label' column into two condition names");
+            SimpleEntry<String, String> conditionPair = conditionPairs.get(line[1]);
+            if (conditionPair == null) {
+                throw new RuntimeException("Failed to resolve conditions in 'Label' column: " + line[1]);
             }
-            result.setReference("conditionTreatment", conditions.get(conditionNames[0]));
-            result.setReference("conditionControl", conditions.get(conditionNames[1]));
+            result.setReference("conditionTreatment", conditions.get(conditionPair.getKey()));
+            result.setReference("conditionControl", conditions.get(conditionPair.getValue()));
             result.setAttribute("log2FoldChange", line[2]);
             result.setAttribute("rawPValue", line[6]);
             result.setAttribute("adjPValue", line[7]); // Benjamini-Hochberg (FDR) adjusted
