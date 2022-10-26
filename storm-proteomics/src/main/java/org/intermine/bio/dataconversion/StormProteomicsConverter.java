@@ -76,6 +76,9 @@ public class StormProteomicsConverter extends BioDirectoryConverter
                     continue;
                 }
                 LOG.info("Processing proteomics results in directory '" + subDir.getName() + "'");
+                samples.clear();
+                conditions.clear();
+                proteinGroups.clear();
                 experiment = createItem("StormProteomicsExperiment");
                 experiment.setAttribute("shortName", subDir.getName());
                 store(experiment);
