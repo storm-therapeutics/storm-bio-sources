@@ -4,17 +4,60 @@
 <classes>
   <class name="StormProteomicsExperiment" is-interface="true">
     <attribute name="shortName" type="java.lang.String"/>
+    <collection name="conditions" referenced-type="StormProteomicsCondition" reverse-reference="experiment"/>
+    <!-- TODO: reference samples directly or only via conditions? -->
     <collection name="samples" referenced-type="StormProteomicsSample" reverse-reference="experiment"/>
+    <collection name="proteinGroups" referenced-type="ProteomicsProteinGroup" reverse-reference="experiment"/>
   </class>
+
   <class name="StormProteomicsSample" is-interface="true">
     <attribute name="name" type="java.lang.String"/>
+    <attribute name="filePath" type="java.lang.String"/>
+    <attribute name="fractionGroup" type="java.lang.Integer"/>
+    <attribute name="fraction" type="java.lang.Integer"/>
+    <attribute name="label" type="java.lang.Integer"/>
+    <attribute name="bioReplicate" type="java.lang.Integer"/>
     <reference name="experiment" referenced-type="StormProteomicsExperiment" reverse-reference="samples"/>
-    <collection name="abundances" referenced-type="ProteinLFQAbundance" reverse-reference="sample"/>
+    <reference name="condition" referenced-type="StormProteomicsCondition" reverse-reference="samples"/>
+    <collection name="abundances" referenced-type="ProteomicsLFQAbundance" reverse-reference="sample"/>
   </class>
-  <class name="ProteinLFQAbundance" is-interface="true">
+
+  <class name="StormProteomicsCondition" is-interface="true">
+    <attribute name="name" type="java.lang.String"/>
+    <reference name="experiment" referenced-type="StormProteomicsExperiment" reverse-reference="conditions"/>
+    <collection name="samples" referenced-type="StormProteomicsSample" reverse-reference="condition"/>
+    <collection name="statsTreatments" referenced-type="ProteomicsMSstatsResult" reverse-reference="conditionTreatment"/>
+    <collection name="statsControls" referenced-type="ProteomicsMSstatsResult" reverse-reference="conditionControl"/>
+  </class>
+
+  <class name="ProteomicsProteinGroup" is-interface="true">
+    <attribute name="identificationQValue" type="java.lang.Double"/>
+    <!-- "proteins" (collection) is not allowed as database key, so make a string version: -->
+    <attribute name="accessions" type="java.lang.String"/>
+    <!-- TODO: add reverse reference? -->
+    <reference name="experiment" referenced-type="StormProteomicsExperiment"/>
+    <collection name="proteins" referenced-type="Protein" reverse-reference="proteomicsProteinGroups"/>
+    <collection name="abundances" referenced-type="ProteomicsLFQAbundance" reverse-reference="proteinGroup"/>
+  </class>
+
+  <class name="ProteomicsLFQAbundance" is-interface="true">
     <attribute name="abundance" type="java.lang.Double"/>
     <reference name="sample" referenced-type="StormProteomicsSample" reverse-reference="abundances"/>
-    <!-- TODO: add reverse reference in Protein class? -->
-    <reference name="protein" referenced-type="Protein"/>
+    <reference name="proteinGroup" referenced-type="ProteomicsProteinGroup" reverse-reference="abundances"/>
+  </class>
+
+  <class name="ProteomicsMSstatsResult" is-interface="true">
+    <attribute name="log2FoldChange" type="java.lang.Double"/>
+    <attribute name="rawPValue" type="java.lang.Double"/>
+    <attribute name="adjPValue" type="java.lang.Double"/>
+    <attribute name="missingFraction" type="java.lang.Double"/>
+    <attribute name="imputedFraction" type="java.lang.Double"/>
+    <reference name="conditionTreatment" referenced-type="StormProteomicsCondition" reverse-reference="statsTreatments"/>
+    <reference name="conditionControl" referenced-type="StormProteomicsCondition" reverse-reference="statsControls"/>
+    <reference name="proteinGroup" referenced-type="ProteomicsProteinGroup"/>
+  </class>
+
+  <class name="Protein" is-interface="true">
+    <collection name="proteomicsProteinGroups" referenced-type="ProteomicsProteinGroup" reverse-reference="proteins"/>
   </class>
 </classes>
