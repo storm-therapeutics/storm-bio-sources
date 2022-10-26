@@ -16,7 +16,7 @@
     <attribute name="fractionGroup" type="java.lang.Integer"/>
     <attribute name="fraction" type="java.lang.Integer"/>
     <attribute name="label" type="java.lang.Integer"/>
-    <attribute name="bioReplicate" type="java.lang.Integer"/>
+    <attribute name="bioReplicate" type="java.lang.String"/>
     <reference name="experiment" referenced-type="StormProteomicsExperiment" reverse-reference="samples"/>
     <reference name="condition" referenced-type="StormProteomicsCondition" reverse-reference="samples"/>
     <collection name="abundances" referenced-type="ProteomicsLFQAbundance" reverse-reference="sample"/>
