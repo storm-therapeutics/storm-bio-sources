@@ -31,7 +31,7 @@ import java.io.BufferedReader;
 import org.json.JSONObject;
 
 /**
- * 
+ *
  * @author
  */
 public class StormRnaseqDataConverter extends BioDirectoryConverter
@@ -52,7 +52,6 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
     protected IdResolver rslv;
     private static final Logger LOG = Logger.getLogger(StormRnaseqDataConverter.class);
 
-    private String organismIdentifier;
     public StormRnaseqDataConverter(ItemWriter writer, Model model) {
         super(writer, model, DATA_SOURCE_NAME, DATASET_TITLE);
         if (rslv == null) {
@@ -61,8 +60,6 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
     }
 
     public void process(File dataDir) throws Exception {
-        organismIdentifier = getOrganism(TAXON_ID);
-
         Map<String, File> directories = readDirectoriesInDir(dataDir);
 
         // Get all JSON config files in the directory and process one by one
@@ -81,7 +78,7 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
         for (File configFile : configFiles) {
             processConfigFile(new FileReader(configFile), dataDir);
         }
-        //    
+        //
     }
 
     private Map<String, Integer> getColumnIndexes(String[] header, String fileType) {
@@ -157,6 +154,7 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
     }
 
     private void processConfigFile(Reader reader, File dataDir) throws ObjectStoreException, IOException {
+        // TODO: read file content directly into JSON object (without BufferedReader, one String per line)
         try (BufferedReader br = new BufferedReader(reader)) {
             String line;
             while ((line = br.readLine()) != null) {
@@ -181,35 +179,28 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
                     // Save the item
                     Item ExperimentMetadataItem = createItem("RNASeqExperimentMetadata");
 
-                    if(!experimentName.isEmpty()) {                 
+                    if (!experimentName.isEmpty()) {
                         ExperimentMetadataItem.setAttribute("name", experimentName);
                     }
-
-                    if(!experimentShortName.isEmpty()) {
+                    if (!experimentShortName.isEmpty()) {
                         ExperimentMetadataItem.setAttribute("shortName", experimentShortName);
                     }
-
-                    if(!experimentProject.isEmpty()) {
+                    if (!experimentProject.isEmpty()) {
                         ExperimentMetadataItem.setAttribute("project", experimentProject);
                     }
-
-                    if(!experimentContactPerson.isEmpty()) {
+                    if (!experimentContactPerson.isEmpty()) {
                         ExperimentMetadataItem.setAttribute("contactPerson", experimentContactPerson);
                     }
-
-                    if(!experimentDate.isEmpty()) {
+                    if (!experimentDate.isEmpty()) {
                         ExperimentMetadataItem.setAttribute("date", experimentDate);
                     }
-
-                    if(!experimentSequencing.isEmpty()) {
+                    if (!experimentSequencing.isEmpty()) {
                         ExperimentMetadataItem.setAttribute("sequencing", experimentSequencing);
                     }
-
-                    if(!experimentProvider.isEmpty()) {
+                    if (!experimentProvider.isEmpty()) {
                         ExperimentMetadataItem.setAttribute("provider", experimentProvider);
                     }
-
-                    if(!experimentDotmaticsReference.isEmpty()) {
+                    if (!experimentDotmaticsReference.isEmpty()) {
                         ExperimentMetadataItem.setAttribute("dotmaticsReference", experimentDotmaticsReference);
                     }
                     //store(ExperimentMetadataItem);
@@ -235,7 +226,8 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
 
                     // Process each comparison individually
                     LOG.info("StormRnaseqDataConverter [processConfigFile] - Processing 4: " + experimentShortName);
-                    Map<String, File> filesInDir = readFilesInDir(new File(dataDir.getAbsolutePath() + "/" + experimentShortName));
+                    Map<String, File> filesInDir = readFilesInDir(new File(dataDir.getAbsolutePath() + "/" +
+                                                                           experimentShortName));
                     JSONArray experimentComparisons = (JSONArray)jsonObject.get("comparisons");
                     for(int i = 0; i < experimentComparisons.length(); i++) {
                         JSONObject comparison = experimentComparisons.getJSONObject(i);
@@ -247,7 +239,8 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
 
                         if(filesInDir.get(fileName) != null) {
                             File DESeq2File = filesInDir.get(fileName);
-                            processRNASeqExperimentComparison(DESeq2File, experimentShortName, treatmentName, controlName);
+                            processRNASeqExperimentComparison(DESeq2File, experimentShortName,
+                                                              treatmentName, controlName);
                         } else {
                             LOG.info("Failed to find DESeq2 file: " + fileName);
                             continue;
@@ -291,7 +284,7 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
         Item ExperimentMetadataItem = experiments.get(experimentShortName);
         Iterator<String> keys = materialsJson.keys();
 
-        while(keys.hasNext()) {
+        while (keys.hasNext()) {
             String key = keys.next();
             try {
                 // Now we have the material
@@ -299,150 +292,129 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
 
                 // There should only be one key under this
                 JSONObject materialTypeKeysJSON = materialsJson.getJSONObject(key);
-                
-                if(materialTypeKeysJSON.has("cell line")) {
+
+                if (materialTypeKeysJSON.has("cell line")) {
                     String materialType = "cell line";
-                
                     // Get the material object
                     JSONObject materialObject = materialTypeKeysJSON.getJSONObject(materialType);
 
                     String cellLineName = "";
-                    if(materialObject.has("name")) {
+                    if (materialObject.has("name")) {
                         cellLineName = materialObject.getString("name");
                     }
-
                     String cellLineTissue = "";
-                    if(materialObject.has("tissue")) {
+                    if (materialObject.has("tissue")) {
                         cellLineTissue = materialObject.getString("tissue");
                     }
-
                     String cellLineSpecies = "";
-                    if(materialObject.has("species")) {
+                    if (materialObject.has("species")) {
                         cellLineSpecies = materialObject.getString("species");
                     }
 
                     // Save the item
-                    Item MaterialMetadataItem = createItem("RNASeqExperimentMaterial");                       
+                    Item MaterialMetadataItem = createItem("RNASeqExperimentMaterial");
 
-                    if(!materialType.isEmpty()) {
+                    if (!materialType.isEmpty()) {
                         MaterialMetadataItem.setAttribute("materialType", materialType);
                     }
-
-                    if(!cellLineName.isEmpty()) {
+                    if (!cellLineName.isEmpty()) {
                         MaterialMetadataItem.setAttribute("name", cellLineName);
                     }
-
-                    if(!cellLineTissue.isEmpty()) {
+                    if (!cellLineTissue.isEmpty()) {
                         MaterialMetadataItem.setAttribute("tissue", cellLineTissue);
                     }
-
-                    if(!cellLineSpecies.isEmpty()) {
+                    if (!cellLineSpecies.isEmpty()) {
                         MaterialMetadataItem.setAttribute("species", cellLineSpecies);
                     }
 
                     MaterialMetadataItem.setReference("experiment", ExperimentMetadataItem);
-
                     store(MaterialMetadataItem);
 
                     if (!materials.containsKey(materialName)) {
                         materials.put(materialName, MaterialMetadataItem);
                     }
-                } else if(materialTypeKeysJSON.has("tumour")) {
+                } else if (materialTypeKeysJSON.has("tumour")) {
                     String materialType = "tumour";
-
                     // Get the material object
                     JSONObject materialObject = materialTypeKeysJSON.getJSONObject(materialType);
 
                     String tumourPrimaryDisease = "";
-                    if(materialObject.has("primary disease")) {
+                    if (materialObject.has("primary disease")) {
                         tumourPrimaryDisease = materialObject.getString("primary disease");
                     }
-
                     String tumourDiseaseSubtype = "";
-                    if(materialObject.has("disease subtype")) {
+                    if (materialObject.has("disease subtype")) {
                         tumourDiseaseSubtype = materialObject.getString("disease subtype");
                     }
-
                     String tumourTissue = "";
-                    if(materialObject.has("tissue")) {
+                    if (materialObject.has("tissue")) {
                         tumourTissue = materialObject.getString("tissue");
                     }
-
                     String tumourSpecies = "";
-                    if(materialObject.has("species")) {
+                    if (materialObject.has("species")) {
                         tumourSpecies = materialObject.getString("species");
                     }
 
                     // Save the item
                     Item MaterialMetadataItem = createItem("RNASeqExperimentMaterial");
 
-                    if(!materialType.isEmpty()) {
+                    if (!materialType.isEmpty()) {
                         MaterialMetadataItem.setAttribute("materialType", materialType);
                     }
-                    
-                    if(!tumourPrimaryDisease.isEmpty()) {
+                    if (!tumourPrimaryDisease.isEmpty()) {
                         MaterialMetadataItem.setAttribute("primaryDisease", tumourPrimaryDisease);
                     }
-
-                    if(!tumourDiseaseSubtype.isEmpty()) {
+                    if (!tumourDiseaseSubtype.isEmpty()) {
                         MaterialMetadataItem.setAttribute("diseaseSubtype", tumourDiseaseSubtype);
                     }
-
-                    if(!tumourTissue.isEmpty()) {
+                    if (!tumourTissue.isEmpty()) {
                         MaterialMetadataItem.setAttribute("tissue", tumourTissue);
                     }
-
-                    if(!tumourSpecies.isEmpty()) {
+                    if (!tumourSpecies.isEmpty()) {
                         MaterialMetadataItem.setAttribute("species", tumourSpecies);
                     }
 
                     MaterialMetadataItem.setReference("experiment", ExperimentMetadataItem);
-
                     store(MaterialMetadataItem);
 
                     if (!materials.containsKey(materialName)) {
                         materials.put(materialName, MaterialMetadataItem);
                     }
-                } else if(materialTypeKeysJSON.has("tissue")) {
+                } else if (materialTypeKeysJSON.has("tissue")) {
                     String materialType = "tissue";
-
                     // Get the material object
                     JSONObject materialObject = materialTypeKeysJSON.getJSONObject(materialType);
 
                     String tissueTissue = "";
-                    if(materialObject.has("tissue")) {
+                    if (materialObject.has("tissue")) {
                         tissueTissue = materialObject.getString("tissue");
                     }
-
                     String tissueSpecies = "";
-                    if(materialObject.has("species")) {
+                    if (materialObject.has("species")) {
                         tissueSpecies = materialObject.getString("species");
                     }
 
                     // Save the item
                     Item MaterialMetadataItem = createItem("RNASeqExperimentMaterial");
 
-                    if(!materialType.isEmpty()) {
+                    if (!materialType.isEmpty()) {
                         MaterialMetadataItem.setAttribute("materialType", materialType);
                     }
-
-                    if(!tissueTissue.isEmpty()) {
+                    if (!tissueTissue.isEmpty()) {
                         MaterialMetadataItem.setAttribute("tissue", tissueTissue);
                     }
-
-                    if(!tissueSpecies.isEmpty()) {
+                    if (!tissueSpecies.isEmpty()) {
                         MaterialMetadataItem.setAttribute("species", tissueSpecies);
                     }
 
-                    MaterialMetadataItem.setReference("experiment", ExperimentMetadataItem);   
-
+                    MaterialMetadataItem.setReference("experiment", ExperimentMetadataItem);
                     store(MaterialMetadataItem);
 
                     if (!materials.containsKey(materialName)) {
                         materials.put(materialName, MaterialMetadataItem);
                     }
                 }
-                              
+
             } catch (Exception e) {
                 LOG.info("Exception in processRNASeqExperimentMaterials with key: " + key + " - " + e.getMessage());
                 continue;
@@ -466,186 +438,157 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
 
                 if(treatmentTypeKeysJSON.has("inhibitor")) {
                     String treatmentType = "inhibitor";
-                
-                    // Get the material object
+                    // Get the treatment object
                     JSONObject treatmentObject = treatmentTypeKeysJSON.getJSONObject(treatmentType);
 
                     String inhibitorName = "";
-                    if(treatmentObject.has("name")) {
+                    if (treatmentObject.has("name")) {
                         inhibitorName = treatmentObject.getString("name");
                     }
-
                     String targetGene = "";
-                    if(treatmentObject.has("target gene")) {
+                    if (treatmentObject.has("target gene")) {
                         targetGene = treatmentObject.getString("target gene");
                     }
-
                     String dotmaticsReference = "";
-                    if(treatmentObject.has("Dotmatics reference")) {
+                    if (treatmentObject.has("Dotmatics reference")) {
                         dotmaticsReference = treatmentObject.getString("Dotmatics reference");
                     }
-
                     String dose = "";
-                    if(treatmentObject.has("dose")) {
+                    if (treatmentObject.has("dose")) {
                         dose = treatmentObject.getString("dose");
                     }
-
                     String timePoint = "";
-                    if(treatmentObject.has("time point")) {
+                    if (treatmentObject.has("time point")) {
                         timePoint = treatmentObject.getString("time point");
-                    }                     
+                    }
 
                     // Save the item
                     Item TreatmentMetadataItem = createItem("RNASeqExperimentTreatment");
+                    TreatmentMetadataItem.setAttribute("treatmentType", treatmentType);
 
-                    TreatmentMetadataItem.setAttribute("treatmentType", treatmentType);                    
-
-                    if(!key.isEmpty()) {
+                    if (!key.isEmpty()) {
                         TreatmentMetadataItem.setAttribute("name", key);
                     }
-
-                    if(!targetGene.isEmpty()) {
+                    if (!targetGene.isEmpty()) {
                         TreatmentMetadataItem.setAttribute("targetGene", targetGene);
                     }
-
-                    if(!dotmaticsReference.isEmpty()) {
+                    if (!dotmaticsReference.isEmpty()) {
                         TreatmentMetadataItem.setAttribute("dotmaticsReference", dotmaticsReference);
                     }
-
-                    if(!StringUtils.isEmpty(dose) && isDouble(dose)) {
+                    if (!StringUtils.isEmpty(dose) && isDouble(dose)) {
                         TreatmentMetadataItem.setAttribute("dose_concentration", dose);
                     }
-
-                    if(!timePoint.isEmpty()) {
+                    if (!timePoint.isEmpty()) {
                         TreatmentMetadataItem.setAttribute("timePoint", timePoint);
                     }
 
                     TreatmentMetadataItem.setReference("experiment", ExperimentMetadataItem);
-
                     store(TreatmentMetadataItem);
 
                     if (!treatments.containsKey(treatmentName)) {
                         treatments.put(treatmentName, TreatmentMetadataItem);
                     }
-                    
+
                 } else if(treatmentTypeKeysJSON.has("knock-down")) {
-                    String treatmentType = "knock-down";                
-                    // Get the material object
+                    String treatmentType = "knock-down";
+                    // Get the treatment object
                     JSONObject treatmentObject = treatmentTypeKeysJSON.getJSONObject(treatmentType);
 
                     String inhibitorName = "";
-                    if(treatmentObject.has("name")) {
+                    if (treatmentObject.has("name")) {
                         inhibitorName = treatmentObject.getString("name");
                     }
-
                     String targetGene = "";
-                    if(treatmentObject.has("target gene")) {
+                    if (treatmentObject.has("target gene")) {
                         targetGene = treatmentObject.getString("target gene");
                     }
-
                     String concentration = "";
-                    if(treatmentObject.has("concentration")) {
+                    if (treatmentObject.has("concentration")) {
                         concentration = treatmentObject.getString("concentration");
                     }
-
                     String type = "";
-                    if(treatmentObject.has("type")) {
+                    if (treatmentObject.has("type")) {
                         type = treatmentObject.getString("type");
                     }
-
                     String timePoint = "";
-                    if(treatmentObject.has("time point")) {
+                    if (treatmentObject.has("time point")) {
                         timePoint = treatmentObject.getString("time point");
-                    }                     
+                    }
 
                     // Save the item
                     Item TreatmentMetadataItem = createItem("RNASeqExperimentTreatment");
-            
-                    TreatmentMetadataItem.setAttribute("treatmentType", treatmentType);                    
+                    TreatmentMetadataItem.setAttribute("treatmentType", treatmentType);
 
-                    if(!key.isEmpty()) {
+                    if (!key.isEmpty()) {
                         TreatmentMetadataItem.setAttribute("name", key);
                     }
-
-                    if(!targetGene.isEmpty()) {
+                    if (!targetGene.isEmpty()) {
                         TreatmentMetadataItem.setAttribute("targetGene", targetGene);
                     }
-
-                    if(!StringUtils.isEmpty(concentration) && isDouble(concentration)) {
+                    if (!StringUtils.isEmpty(concentration) && isDouble(concentration)) {
                         TreatmentMetadataItem.setAttribute("dose_concentration", concentration);
                     }
-
-                    if(!type.isEmpty()) {
+                    if (!type.isEmpty()) {
                         TreatmentMetadataItem.setAttribute("type", type);
                     }
-
-                    if(!timePoint.isEmpty()) {
+                    if (!timePoint.isEmpty()) {
                         TreatmentMetadataItem.setAttribute("timePoint", timePoint);
                     }
 
                     TreatmentMetadataItem.setReference("experiment", ExperimentMetadataItem);
-
                     store(TreatmentMetadataItem);
 
                     if (!treatments.containsKey(treatmentName)) {
                         treatments.put(treatmentName, TreatmentMetadataItem);
                     }
                 }
-                else if(treatmentTypeKeysJSON.has("untargeted")) {
-                    String treatmentType = "untargeted";                
-                    // Get the material object
+                else if (treatmentTypeKeysJSON.has("untargeted")) {
+                    String treatmentType = "untargeted";
+                    // Get the treatment object
                     JSONObject treatmentObject = treatmentTypeKeysJSON.getJSONObject(treatmentType);
 
                     String inhibitorName = "";
-                    if(treatmentObject.has("name")) {
+                    if (treatmentObject.has("name")) {
                         inhibitorName = treatmentObject.getString("name");
                     }
-
                     String targetGene = "";
-                    if(treatmentObject.has("target gene")) {
+                    if (treatmentObject.has("target gene")) {
                         targetGene = treatmentObject.getString("target gene");
                     }
-
                     String concentration = "";
-                    if(treatmentObject.has("concentration")) {
+                    if (treatmentObject.has("concentration")) {
                         concentration = treatmentObject.getString("concentration");
                     }
-                    
                     String type = "";
-                    if(treatmentObject.has("type")) {
+                    if (treatmentObject.has("type")) {
                         type = treatmentObject.getString("type");
                     }
-
                     String timePoint = "";
-                    if(treatmentObject.has("time point")) {
+                    if (treatmentObject.has("time point")) {
                         timePoint = treatmentObject.getString("time point");
-                    }                     
+                    }
 
                     // Save the item
                     Item TreatmentMetadataItem = createItem("RNASeqExperimentTreatment");
-      
                     TreatmentMetadataItem.setAttribute("treatmentType", treatmentType);
 
-                    if(!key.isEmpty()) {
+                    if (!key.isEmpty()) {
                         TreatmentMetadataItem.setAttribute("name", key);
                     }
-
-                    if(!StringUtils.isEmpty(concentration) && isDouble(concentration)) {
+                    if (!StringUtils.isEmpty(concentration) && isDouble(concentration)) {
                         TreatmentMetadataItem.setAttribute("dose_concentration", concentration);
                     }
-
-                    if(!timePoint.isEmpty()) {
+                    if (!timePoint.isEmpty()) {
                         TreatmentMetadataItem.setAttribute("timePoint", timePoint);
                     }
 
                     TreatmentMetadataItem.setReference("experiment", ExperimentMetadataItem);
-
                     store(TreatmentMetadataItem);
 
                     if (!treatments.containsKey(treatmentName)) {
                         treatments.put(treatmentName, TreatmentMetadataItem);
                     }
-                }                
+                }
             } catch (Exception e) {
                 LOG.info("Exception in processRNASeqExperimentTreatments with key: " + key + " - " + e.getMessage());
                 continue;
@@ -692,13 +635,13 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
                 // Save the item
                 Item ConditionMetadataItem = createItem("RNASeqExperimentCondition");
 
-                if(!treatmentsArray.isEmpty()) {
+                if (!treatmentsArray.isEmpty()) {
                     ConditionMetadataItem.setAttribute("name", conditionName);
                 } else {
                     continue;
                 }
 
-                if(!treatments.isEmpty()) {
+                if (!treatments.isEmpty()) {
                     //ConditionMetadataItem.setAttribute("treatments", treatments);
                     List<String> treatmentsIds = new ArrayList<>();
 
@@ -707,17 +650,17 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
                         if (treatments.containsKey(treatmentNameToAdd)) {
                             String treatmentIdToAdd = treatments.get(treatmentNameToAdd).getIdentifier();
                             treatmentsIds.add(treatmentIdToAdd);
-                        }                        
+                        }
                     }
 
                     ConditionMetadataItem.setCollection("treatments", treatmentsIds);
                 }
 
-                if(!samples.isEmpty()) {
+                if (!samples.isEmpty()) {
                     ConditionMetadataItem.setAttribute("samples", samples);
                 }
 
-                if(!materialName.isEmpty()) {
+                if (!materialName.isEmpty()) {
                     if (materials.containsKey(materialName)) {
                         ConditionMetadataItem.setReference("material", materials.get(materialName));
                     }
@@ -731,8 +674,6 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
                     conditions.put(conditionName, ConditionMetadataItem);
                 }
 
-    
-                
             } catch (Exception e) {
                 LOG.info("Exception in processRNASeqExperimentConditions with key: " + key + " - " + e.getMessage());
                 continue;
@@ -744,7 +685,7 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
         Item ExperimentMetadataItem = experiments.get(experimentShortName);
         String fileName = DESeq2File.getName();
 
-        if(fileName.endsWith("_DESeq2.tsv")) {
+        if (fileName.endsWith("_DESeq2.tsv")) {
             String fileAbsPath = DESeq2File.getAbsolutePath();
 
             Iterator<?> lineIter = FormattedTextParser.parseTabDelimitedReader(new FileReader(fileAbsPath));
@@ -765,7 +706,7 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
 
                 Item IntegratedItem = createItem("RNASeqExperimentComparison");
 
-                if(!gene.isEmpty()) {
+                if (!gene.isEmpty()) {
                     if(unresolvableGenes.get(gene) != null) {
                         continue;
                     }
@@ -778,48 +719,41 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
                     throw new BuildException("[processRNASeqExperimentComparison] gene was empty: " + fileName);
                 }
 
-                if(!geneEnsemblId.isEmpty()) {
+                if (!geneEnsemblId.isEmpty()) {
                     IntegratedItem.setAttribute("geneEnsemblId", geneEnsemblId);
                 }
-                               
-                if(conditions.containsKey(controlName)) {
+
+                if (conditions.containsKey(controlName)) {
                     IntegratedItem.setReference("control", conditions.get(controlName));
                 } else {
                     continue;
                 }
-
-                if(conditions.containsKey(treatmentName)) {
+                if (conditions.containsKey(treatmentName)) {
                     IntegratedItem.setReference("treatment", conditions.get(treatmentName));
                 } else {
                     continue;
                 }
 
-                if(!StringUtils.isEmpty(baseMean) && isDouble(baseMean)) {
+                if (!StringUtils.isEmpty(baseMean) && isDouble(baseMean)) {
                     IntegratedItem.setAttribute("baseMean", baseMean);
                 }
-
-                if(!StringUtils.isEmpty(log2FoldChange) && isDouble(log2FoldChange)) {
+                if (!StringUtils.isEmpty(log2FoldChange) && isDouble(log2FoldChange)) {
                     IntegratedItem.setAttribute("log2FoldChange", log2FoldChange);
                 }
-
-                if(!StringUtils.isEmpty(lfcSE) && isDouble(lfcSE)) {
+                if (!StringUtils.isEmpty(lfcSE) && isDouble(lfcSE)) {
                     IntegratedItem.setAttribute("lfcSE", lfcSE);
                 }
-
-                if(!StringUtils.isEmpty(stat) && isDouble(stat)) {
+                if (!StringUtils.isEmpty(stat) && isDouble(stat)) {
                     IntegratedItem.setAttribute("stat", stat);
                 }
-
-                if(!StringUtils.isEmpty(pvalue) && isDouble(pvalue)) {
+                if (!StringUtils.isEmpty(pvalue) && isDouble(pvalue)) {
                     IntegratedItem.setAttribute("pvalue", pvalue);
                 }
-
-                if(!StringUtils.isEmpty(padj) && isDouble(padj)) {
+                if (!StringUtils.isEmpty(padj) && isDouble(padj)) {
                     IntegratedItem.setAttribute("padj", padj);
-                }                    
+                }
 
-                IntegratedItem.setReference("experiment", ExperimentMetadataItem);         
-
+                IntegratedItem.setReference("experiment", ExperimentMetadataItem);
                 store(IntegratedItem);
             }
         }
@@ -832,23 +766,22 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
         String[] firstLine = (String[]) lineIter.next();
 
         ArrayList<String> runs = new ArrayList<String>();
-        for(int i = 2; i < firstLine.length; i++) {
+        for (int i = 2; i < firstLine.length; i++) {
             String run = firstLine[i];
             runs.add(run);
         }
 
         while (lineIter.hasNext()) {
-
             String[] line = (String[]) lineIter.next();
             String gene = line[1];
             String geneEnsemblId = line[0].split("\\.")[0];
             try {
-                for(int i = 2; i < line.length; i++) {
+                for (int i = 2; i < line.length; i++) {
                     String count = line[i];
                     String runForThisItem = runs.get(i-2);
                     Item IntegratedItem = createItem("RNASeqExperimentFeatureCounts");
-                    if(!gene.isEmpty()) {
-                        if(unresolvableGenes.get(gene) != null) {
+                    if (!gene.isEmpty()) {
+                        if (unresolvableGenes.get(gene) != null) {
                             continue;
                         }
                         String geneId = getGeneId(gene);
@@ -860,22 +793,19 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
                         continue;
                     }
 
-                    if(!geneEnsemblId.isEmpty()) {
+                    if (!geneEnsemblId.isEmpty()) {
                         IntegratedItem.setAttribute("geneEnsemblId", geneEnsemblId);
                     }
-
-                    if(!StringUtils.isEmpty(runForThisItem)) {
+                    if (!StringUtils.isEmpty(runForThisItem)) {
                         IntegratedItem.setAttribute("run", runForThisItem);
                     } else {
                         continue;
                     }
-
-                    if(!StringUtils.isEmpty(count) && isDouble(count)) {
+                    if (!StringUtils.isEmpty(count) && isDouble(count)) {
                         IntegratedItem.setAttribute("count", count);
                     }
 
                     IntegratedItem.setReference("experiment", ExperimentMetadataItem);
-
                     store(IntegratedItem);
                 }
             } catch (Exception e) {
