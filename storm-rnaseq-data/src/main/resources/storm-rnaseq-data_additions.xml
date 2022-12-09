@@ -61,7 +61,7 @@
         <attribute name="targetGene" type="java.lang.String"/>
         <attribute name="dotmaticsReference" type="java.lang.String"/>
         <attribute name="type" type="java.lang.String"/>
-        <attribute name="dose_concentration" type="java.lang.Double"/>
+        <attribute name="dose_concentration" type="java.lang.String"/>
         <attribute name="timePoint" type="java.lang.String"/>
         <collection name="conditions" referenced-type="RNASeqExperimentCondition" reverse-reference="treatments"/>
     </class>

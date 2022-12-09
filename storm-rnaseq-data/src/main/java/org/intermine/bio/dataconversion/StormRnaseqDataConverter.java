@@ -1,7 +1,7 @@
 package org.intermine.bio.dataconversion;
 
 /*
- * Copyright (C) 2002-2019 FlyMine
+ * Copyright (C) 2021-2022 STORM Therapeutics Limited
  *
  * This code may be freely distributed and modified under the
  * terms of the GNU Lesser General Public Licence.  This should
@@ -26,13 +26,10 @@ import org.intermine.objectstore.ObjectStoreException;
 import org.intermine.util.FormattedTextParser;
 import org.intermine.xml.full.Item;
 
-import org.json.*;
-import java.io.BufferedReader;
-import org.json.JSONObject;
-
 /**
+ * Read results from RNA-seq data analysis
  *
- * @author
+ * @author Adrian Bazaga, Hendrik Weisser
  */
 public class StormRnaseqDataConverter extends BioDirectoryConverter
 {
@@ -44,10 +41,6 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
     private Map<String, String> genes = new HashMap<String, String>();
     private Map<String, String> resolvedGenes = new HashMap<String, String>();
     private Map<String, String> unresolvableGenes = new HashMap<String, String>();
-    private Map<String, Item> experiments = new HashMap<>();
-    private Map<String, Item> materials = new HashMap<>();
-    private Map<String, Item> treatments = new HashMap<>();
-    private Map<String, Item> conditions = new HashMap<>();
 
     protected IdResolver rslv;
     private static final Logger LOG = Logger.getLogger(StormRnaseqDataConverter.class);
@@ -63,22 +56,55 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
         Map<String, File> directories = readDirectoriesInDir(dataDir);
 
         // Get all JSON config files in the directory and process one by one
-        File[] configFilesArray = dataDir.listFiles(new FilenameFilter() {
+        File[] jsonFiles = dataDir.listFiles(new FilenameFilter() {
             @Override
             public boolean accept(File dir, String name) {
                 return name.endsWith(".json");
             }
         });
 
-        ArrayList<File> configFiles = new ArrayList<File>();
-        for(int i = 0; i < configFilesArray.length; i++) {
-            configFiles.add(configFilesArray[i]);
-        }
+        for (File jsonFile : jsonFiles) {
+            // read experiment metadata:
+            StormExperimentMetadata expMeta = new StormExperimentMetadata(this);
+            expMeta.processJSONFile(jsonFile);
+            // find matching results:
+            File experimentDir = new File(dataDir.getAbsolutePath(), expMeta.experimentShortName);
+            Map<String, File> filesInDir = readFilesInDir(experimentDir);
 
-        for (File configFile : configFiles) {
-            processConfigFile(new FileReader(configFile), dataDir);
+            // Process differential expression results
+            for (StormExperimentMetadata.ConditionsPair comparison : expMeta.comparisons) {
+                String fileName = comparison.treatment + "_vs_" + comparison.control + "_DESeq2.tsv";
+
+                if (filesInDir.get(fileName) != null) {
+                    File deSeq2File = filesInDir.get(fileName);
+                    processRNASeqExperimentComparison(deSeq2File, expMeta, comparison.treatment, comparison.control);
+                } else {
+                    LOG.info("Failed to find DESeq2 file: " + fileName);
+                    continue;
+                    //throw new RuntimeException("Failed to find DESeq2 file: " + fileName);
+                }
+            }
+
+            // Process feature counts
+            LOG.info("StormRnaseqDataConverter [processConfigFile] - Processing 5: " + expMeta.experimentShortName);
+            String fileName = "salmon.merged.gene_counts.tsv";
+            File geneCountsFile = filesInDir.get(fileName);
+            if (geneCountsFile != null) {
+                processRNASeqExperimentGeneCount(geneCountsFile, expMeta);
+            } else {
+                LOG.info("Failed to find counts file: " + fileName);
+                continue;
+                //throw new RuntimeException("Failed to find DESeq2 file: " + geneCountsFile);
+            }
+
+            // Store the experiment
+            LOG.info("Storing experiment: " + expMeta.experimentShortName);
+            try {
+                store(expMeta.experiment);
+            } catch (Exception e) {
+                throw new RuntimeException("Error storing StormRNASeqExperiment ", e);
+            }
         }
-        //
     }
 
     private Map<String, Integer> getColumnIndexes(String[] header, String fileType) {
@@ -153,536 +179,11 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
         return indexes;
     }
 
-    private void processConfigFile(Reader reader, File dataDir) throws ObjectStoreException, IOException {
-        // TODO: read file content directly into JSON object (without BufferedReader, one String per line)
-        try (BufferedReader br = new BufferedReader(reader)) {
-            String line;
-            while ((line = br.readLine()) != null) {
-                try {
-                    JSONObject jsonObject = new JSONObject(line);
 
-                    // Get the experiment key
-                    JSONObject experimentJson = jsonObject.getJSONObject("experiment");
 
-                    // Get the experiment metadata
-                    String experimentName = experimentJson.getString("name");
-                    String experimentShortName = experimentJson.getString("short name");
-                    String experimentProject = experimentJson.getString("project");
-                    String experimentContactPerson = experimentJson.getString("contact person");
-                    String experimentDate = experimentJson.getString("date");
-                    String experimentSequencing = experimentJson.getString("sequencing");
-                    String experimentProvider = experimentJson.getString("provider");
-                    String experimentDotmaticsReference = experimentJson.getString("Dotmatics reference");
 
-                    LOG.info("StormRnaseqDataConverter [processConfigFile] - Processing 1: " + experimentShortName);
-
-                    // Save the item
-                    Item ExperimentMetadataItem = createItem("RNASeqExperimentMetadata");
-
-                    if (!experimentName.isEmpty()) {
-                        ExperimentMetadataItem.setAttribute("name", experimentName);
-                    }
-                    if (!experimentShortName.isEmpty()) {
-                        ExperimentMetadataItem.setAttribute("shortName", experimentShortName);
-                    }
-                    if (!experimentProject.isEmpty()) {
-                        ExperimentMetadataItem.setAttribute("project", experimentProject);
-                    }
-                    if (!experimentContactPerson.isEmpty()) {
-                        ExperimentMetadataItem.setAttribute("contactPerson", experimentContactPerson);
-                    }
-                    if (!experimentDate.isEmpty()) {
-                        ExperimentMetadataItem.setAttribute("date", experimentDate);
-                    }
-                    if (!experimentSequencing.isEmpty()) {
-                        ExperimentMetadataItem.setAttribute("sequencing", experimentSequencing);
-                    }
-                    if (!experimentProvider.isEmpty()) {
-                        ExperimentMetadataItem.setAttribute("provider", experimentProvider);
-                    }
-                    if (!experimentDotmaticsReference.isEmpty()) {
-                        ExperimentMetadataItem.setAttribute("dotmaticsReference", experimentDotmaticsReference);
-                    }
-                    //store(ExperimentMetadataItem);
-
-                    String experimentKey = experimentShortName;
-                    if (!experiments.containsKey(experimentKey)) {
-                        experiments.put(experimentKey, ExperimentMetadataItem);
-                    }
-
-                    // Process materials
-                    LOG.info("StormRnaseqDataConverter [processConfigFile] - Processing 2: " + experimentShortName);
-                    JSONObject materialsJson = jsonObject.getJSONObject("materials");
-                    processRNASeqExperimentMaterials(materialsJson, experimentShortName);
-
-                    // Process treatments
-                    LOG.info("StormRnaseqDataConverter [processConfigFile] - Processing 3: " + experimentShortName);
-                    JSONObject treatmentsJson = jsonObject.getJSONObject("treatments");
-                    processRNASeqExperimentTreatments(treatmentsJson, experimentShortName);
-
-                    // Process conditions
-                    JSONObject conditionsJson = jsonObject.getJSONObject("conditions");
-                    processRNASeqExperimentConditions(conditionsJson, experimentShortName);
-
-                    // Process each comparison individually
-                    LOG.info("StormRnaseqDataConverter [processConfigFile] - Processing 4: " + experimentShortName);
-                    Map<String, File> filesInDir = readFilesInDir(new File(dataDir.getAbsolutePath() + "/" +
-                                                                           experimentShortName));
-                    JSONArray experimentComparisons = (JSONArray)jsonObject.get("comparisons");
-                    for(int i = 0; i < experimentComparisons.length(); i++) {
-                        JSONObject comparison = experimentComparisons.getJSONObject(i);
-                        JSONObject treatmentObject = comparison.getJSONObject("treatment");
-                        JSONObject controlObject = comparison.getJSONObject("control");
-                        String treatmentName = treatmentObject.getString("name");
-                        String controlName = controlObject.getString("name");
-                        String fileName = treatmentName + "_vs_" + controlName + "_DESeq2.tsv";
-
-                        if(filesInDir.get(fileName) != null) {
-                            File DESeq2File = filesInDir.get(fileName);
-                            processRNASeqExperimentComparison(DESeq2File, experimentShortName,
-                                                              treatmentName, controlName);
-                        } else {
-                            LOG.info("Failed to find DESeq2 file: " + fileName);
-                            continue;
-                            //throw new RuntimeException("Failed to find DESeq2 file: " + fileName);
-                        }
-                    }
-
-                    // Process the gene counts
-                    LOG.info("StormRnaseqDataConverter [processConfigFile] - Processing 5: " + experimentShortName);
-                    String geneCountsFile = "salmon.merged.gene_counts.tsv";
-                    if(filesInDir.get(geneCountsFile) != null) {
-                        File GeneCountsFile = filesInDir.get(geneCountsFile);
-                        processRNASeqExperimentGeneCount(GeneCountsFile, experimentShortName);
-                    } else {
-                        LOG.info("Failed to find DESeq2 file: " + geneCountsFile);
-                        continue;
-                        //throw new RuntimeException("Failed to find DESeq2 file: " + geneCountsFile);
-                    }
-
-                    // Store the experiment
-                    LOG.info("StormRnaseqDataConverter [processConfigFile] - Processing 6: " + experimentShortName);
-                    storeExperiment(ExperimentMetadataItem, experimentShortName);
-
-                } catch (JSONException err) {
-                    throw new RuntimeException("Failed to read the following JSON: " + line, err);
-                }
-            }
-        }
-    }
-
-    private void storeExperiment(Item ExperimentMetadataItem, String experimentKey) {
-        try {
-            store(ExperimentMetadataItem);
-        } catch (Exception e) {
-            throw new RuntimeException("Error storing StormRNASeqExperiment ", e);
-        }
-    }
-
-    private void processRNASeqExperimentMaterials(JSONObject materialsJson, String experimentShortName) {
-        // Iterate over each material
-        Item ExperimentMetadataItem = experiments.get(experimentShortName);
-        Iterator<String> keys = materialsJson.keys();
-
-        while (keys.hasNext()) {
-            String key = keys.next();
-            try {
-                // Now we have the material
-                String materialName = key;
-
-                // There should only be one key under this
-                JSONObject materialTypeKeysJSON = materialsJson.getJSONObject(key);
-
-                if (materialTypeKeysJSON.has("cell line")) {
-                    String materialType = "cell line";
-                    // Get the material object
-                    JSONObject materialObject = materialTypeKeysJSON.getJSONObject(materialType);
-
-                    String cellLineName = "";
-                    if (materialObject.has("name")) {
-                        cellLineName = materialObject.getString("name");
-                    }
-                    String cellLineTissue = "";
-                    if (materialObject.has("tissue")) {
-                        cellLineTissue = materialObject.getString("tissue");
-                    }
-                    String cellLineSpecies = "";
-                    if (materialObject.has("species")) {
-                        cellLineSpecies = materialObject.getString("species");
-                    }
-
-                    // Save the item
-                    Item MaterialMetadataItem = createItem("RNASeqExperimentMaterial");
-
-                    if (!materialType.isEmpty()) {
-                        MaterialMetadataItem.setAttribute("materialType", materialType);
-                    }
-                    if (!cellLineName.isEmpty()) {
-                        MaterialMetadataItem.setAttribute("name", cellLineName);
-                    }
-                    if (!cellLineTissue.isEmpty()) {
-                        MaterialMetadataItem.setAttribute("tissue", cellLineTissue);
-                    }
-                    if (!cellLineSpecies.isEmpty()) {
-                        MaterialMetadataItem.setAttribute("species", cellLineSpecies);
-                    }
-
-                    MaterialMetadataItem.setReference("experiment", ExperimentMetadataItem);
-                    store(MaterialMetadataItem);
-
-                    if (!materials.containsKey(materialName)) {
-                        materials.put(materialName, MaterialMetadataItem);
-                    }
-                } else if (materialTypeKeysJSON.has("tumour")) {
-                    String materialType = "tumour";
-                    // Get the material object
-                    JSONObject materialObject = materialTypeKeysJSON.getJSONObject(materialType);
-
-                    String tumourPrimaryDisease = "";
-                    if (materialObject.has("primary disease")) {
-                        tumourPrimaryDisease = materialObject.getString("primary disease");
-                    }
-                    String tumourDiseaseSubtype = "";
-                    if (materialObject.has("disease subtype")) {
-                        tumourDiseaseSubtype = materialObject.getString("disease subtype");
-                    }
-                    String tumourTissue = "";
-                    if (materialObject.has("tissue")) {
-                        tumourTissue = materialObject.getString("tissue");
-                    }
-                    String tumourSpecies = "";
-                    if (materialObject.has("species")) {
-                        tumourSpecies = materialObject.getString("species");
-                    }
-
-                    // Save the item
-                    Item MaterialMetadataItem = createItem("RNASeqExperimentMaterial");
-
-                    if (!materialType.isEmpty()) {
-                        MaterialMetadataItem.setAttribute("materialType", materialType);
-                    }
-                    if (!tumourPrimaryDisease.isEmpty()) {
-                        MaterialMetadataItem.setAttribute("primaryDisease", tumourPrimaryDisease);
-                    }
-                    if (!tumourDiseaseSubtype.isEmpty()) {
-                        MaterialMetadataItem.setAttribute("diseaseSubtype", tumourDiseaseSubtype);
-                    }
-                    if (!tumourTissue.isEmpty()) {
-                        MaterialMetadataItem.setAttribute("tissue", tumourTissue);
-                    }
-                    if (!tumourSpecies.isEmpty()) {
-                        MaterialMetadataItem.setAttribute("species", tumourSpecies);
-                    }
-
-                    MaterialMetadataItem.setReference("experiment", ExperimentMetadataItem);
-                    store(MaterialMetadataItem);
-
-                    if (!materials.containsKey(materialName)) {
-                        materials.put(materialName, MaterialMetadataItem);
-                    }
-                } else if (materialTypeKeysJSON.has("tissue")) {
-                    String materialType = "tissue";
-                    // Get the material object
-                    JSONObject materialObject = materialTypeKeysJSON.getJSONObject(materialType);
-
-                    String tissueTissue = "";
-                    if (materialObject.has("tissue")) {
-                        tissueTissue = materialObject.getString("tissue");
-                    }
-                    String tissueSpecies = "";
-                    if (materialObject.has("species")) {
-                        tissueSpecies = materialObject.getString("species");
-                    }
-
-                    // Save the item
-                    Item MaterialMetadataItem = createItem("RNASeqExperimentMaterial");
-
-                    if (!materialType.isEmpty()) {
-                        MaterialMetadataItem.setAttribute("materialType", materialType);
-                    }
-                    if (!tissueTissue.isEmpty()) {
-                        MaterialMetadataItem.setAttribute("tissue", tissueTissue);
-                    }
-                    if (!tissueSpecies.isEmpty()) {
-                        MaterialMetadataItem.setAttribute("species", tissueSpecies);
-                    }
-
-                    MaterialMetadataItem.setReference("experiment", ExperimentMetadataItem);
-                    store(MaterialMetadataItem);
-
-                    if (!materials.containsKey(materialName)) {
-                        materials.put(materialName, MaterialMetadataItem);
-                    }
-                }
-
-            } catch (Exception e) {
-                LOG.info("Exception in processRNASeqExperimentMaterials with key: " + key + " - " + e.getMessage());
-                continue;
-            }
-        }
-    }
-
-    private void processRNASeqExperimentTreatments(JSONObject treatmentsJson, String experimentShortName) {
-        // Iterate over each material
-        Item ExperimentMetadataItem = experiments.get(experimentShortName);
-        Iterator<String> keys = treatmentsJson.keys();
-
-        while(keys.hasNext()) {
-            String key = keys.next();
-            try {
-                // Now we have the material
-                String treatmentName = key;
-
-                // There should only be one key under this
-                JSONObject treatmentTypeKeysJSON = treatmentsJson.getJSONObject(key);
-
-                if(treatmentTypeKeysJSON.has("inhibitor")) {
-                    String treatmentType = "inhibitor";
-                    // Get the treatment object
-                    JSONObject treatmentObject = treatmentTypeKeysJSON.getJSONObject(treatmentType);
-
-                    String inhibitorName = "";
-                    if (treatmentObject.has("name")) {
-                        inhibitorName = treatmentObject.getString("name");
-                    }
-                    String targetGene = "";
-                    if (treatmentObject.has("target gene")) {
-                        targetGene = treatmentObject.getString("target gene");
-                    }
-                    String dotmaticsReference = "";
-                    if (treatmentObject.has("Dotmatics reference")) {
-                        dotmaticsReference = treatmentObject.getString("Dotmatics reference");
-                    }
-                    String dose = "";
-                    if (treatmentObject.has("dose")) {
-                        dose = treatmentObject.getString("dose");
-                    }
-                    String timePoint = "";
-                    if (treatmentObject.has("time point")) {
-                        timePoint = treatmentObject.getString("time point");
-                    }
-
-                    // Save the item
-                    Item TreatmentMetadataItem = createItem("RNASeqExperimentTreatment");
-                    TreatmentMetadataItem.setAttribute("treatmentType", treatmentType);
-
-                    if (!key.isEmpty()) {
-                        TreatmentMetadataItem.setAttribute("name", key);
-                    }
-                    if (!targetGene.isEmpty()) {
-                        TreatmentMetadataItem.setAttribute("targetGene", targetGene);
-                    }
-                    if (!dotmaticsReference.isEmpty()) {
-                        TreatmentMetadataItem.setAttribute("dotmaticsReference", dotmaticsReference);
-                    }
-                    if (!StringUtils.isEmpty(dose) && isDouble(dose)) {
-                        TreatmentMetadataItem.setAttribute("dose_concentration", dose);
-                    }
-                    if (!timePoint.isEmpty()) {
-                        TreatmentMetadataItem.setAttribute("timePoint", timePoint);
-                    }
-
-                    TreatmentMetadataItem.setReference("experiment", ExperimentMetadataItem);
-                    store(TreatmentMetadataItem);
-
-                    if (!treatments.containsKey(treatmentName)) {
-                        treatments.put(treatmentName, TreatmentMetadataItem);
-                    }
-
-                } else if(treatmentTypeKeysJSON.has("knock-down")) {
-                    String treatmentType = "knock-down";
-                    // Get the treatment object
-                    JSONObject treatmentObject = treatmentTypeKeysJSON.getJSONObject(treatmentType);
-
-                    String inhibitorName = "";
-                    if (treatmentObject.has("name")) {
-                        inhibitorName = treatmentObject.getString("name");
-                    }
-                    String targetGene = "";
-                    if (treatmentObject.has("target gene")) {
-                        targetGene = treatmentObject.getString("target gene");
-                    }
-                    String concentration = "";
-                    if (treatmentObject.has("concentration")) {
-                        concentration = treatmentObject.getString("concentration");
-                    }
-                    String type = "";
-                    if (treatmentObject.has("type")) {
-                        type = treatmentObject.getString("type");
-                    }
-                    String timePoint = "";
-                    if (treatmentObject.has("time point")) {
-                        timePoint = treatmentObject.getString("time point");
-                    }
-
-                    // Save the item
-                    Item TreatmentMetadataItem = createItem("RNASeqExperimentTreatment");
-                    TreatmentMetadataItem.setAttribute("treatmentType", treatmentType);
-
-                    if (!key.isEmpty()) {
-                        TreatmentMetadataItem.setAttribute("name", key);
-                    }
-                    if (!targetGene.isEmpty()) {
-                        TreatmentMetadataItem.setAttribute("targetGene", targetGene);
-                    }
-                    if (!StringUtils.isEmpty(concentration) && isDouble(concentration)) {
-                        TreatmentMetadataItem.setAttribute("dose_concentration", concentration);
-                    }
-                    if (!type.isEmpty()) {
-                        TreatmentMetadataItem.setAttribute("type", type);
-                    }
-                    if (!timePoint.isEmpty()) {
-                        TreatmentMetadataItem.setAttribute("timePoint", timePoint);
-                    }
-
-                    TreatmentMetadataItem.setReference("experiment", ExperimentMetadataItem);
-                    store(TreatmentMetadataItem);
-
-                    if (!treatments.containsKey(treatmentName)) {
-                        treatments.put(treatmentName, TreatmentMetadataItem);
-                    }
-                }
-                else if (treatmentTypeKeysJSON.has("untargeted")) {
-                    String treatmentType = "untargeted";
-                    // Get the treatment object
-                    JSONObject treatmentObject = treatmentTypeKeysJSON.getJSONObject(treatmentType);
-
-                    String inhibitorName = "";
-                    if (treatmentObject.has("name")) {
-                        inhibitorName = treatmentObject.getString("name");
-                    }
-                    String targetGene = "";
-                    if (treatmentObject.has("target gene")) {
-                        targetGene = treatmentObject.getString("target gene");
-                    }
-                    String concentration = "";
-                    if (treatmentObject.has("concentration")) {
-                        concentration = treatmentObject.getString("concentration");
-                    }
-                    String type = "";
-                    if (treatmentObject.has("type")) {
-                        type = treatmentObject.getString("type");
-                    }
-                    String timePoint = "";
-                    if (treatmentObject.has("time point")) {
-                        timePoint = treatmentObject.getString("time point");
-                    }
-
-                    // Save the item
-                    Item TreatmentMetadataItem = createItem("RNASeqExperimentTreatment");
-                    TreatmentMetadataItem.setAttribute("treatmentType", treatmentType);
-
-                    if (!key.isEmpty()) {
-                        TreatmentMetadataItem.setAttribute("name", key);
-                    }
-                    if (!StringUtils.isEmpty(concentration) && isDouble(concentration)) {
-                        TreatmentMetadataItem.setAttribute("dose_concentration", concentration);
-                    }
-                    if (!timePoint.isEmpty()) {
-                        TreatmentMetadataItem.setAttribute("timePoint", timePoint);
-                    }
-
-                    TreatmentMetadataItem.setReference("experiment", ExperimentMetadataItem);
-                    store(TreatmentMetadataItem);
-
-                    if (!treatments.containsKey(treatmentName)) {
-                        treatments.put(treatmentName, TreatmentMetadataItem);
-                    }
-                }
-            } catch (Exception e) {
-                LOG.info("Exception in processRNASeqExperimentTreatments with key: " + key + " - " + e.getMessage());
-                continue;
-            }
-        }
-    }
-
-    private void processRNASeqExperimentConditions(JSONObject conditionsJson, String experimentShortName) {
-        // Iterate over each condition
-        Item ExperimentMetadataItem = experiments.get(experimentShortName);
-        Iterator<String> keys = conditionsJson.keys();
-
-        while(keys.hasNext()) {
-            String key = keys.next();
-            try {
-                // Now we have the condition
-                String conditionName = key;
-
-                // There should only be one key under this
-                JSONObject conditionsKeysJSON = conditionsJson.getJSONObject(conditionName);
-
-                String materialName = conditionsKeysJSON.getString("material");
-
-                // Samples
-                ArrayList<String> samplesArray = new ArrayList<String>();
-                JSONObject samplesJson = conditionsKeysJSON.getJSONObject("samples");
-                Iterator<String> samplesKeys = samplesJson.keys();
-                while(samplesKeys.hasNext()) {
-                    String sampleKey = samplesKeys.next();
-                    samplesArray.add(sampleKey);
-                }
-
-                String samples = String.join(", ", samplesArray);
-
-                // Treatments
-                ArrayList<String> treatmentsArray = new ArrayList<String>();
-                JSONArray treatmentsJson = conditionsKeysJSON.getJSONArray("treatments");
-                for(int i = 0; i < treatmentsJson.length(); i++) {
-                    treatmentsArray.add(treatmentsJson.getString(i));
-                }
-
-                //String treatments = String.join(", ", treatmentsArray);
-
-                // Save the item
-                Item ConditionMetadataItem = createItem("RNASeqExperimentCondition");
-
-                if (!treatmentsArray.isEmpty()) {
-                    ConditionMetadataItem.setAttribute("name", conditionName);
-                } else {
-                    continue;
-                }
-
-                if (!treatments.isEmpty()) {
-                    //ConditionMetadataItem.setAttribute("treatments", treatments);
-                    List<String> treatmentsIds = new ArrayList<>();
-
-                    for(int i = 0; i < treatmentsArray.size(); i++) {
-                        String treatmentNameToAdd = treatmentsArray.get(i);
-                        if (treatments.containsKey(treatmentNameToAdd)) {
-                            String treatmentIdToAdd = treatments.get(treatmentNameToAdd).getIdentifier();
-                            treatmentsIds.add(treatmentIdToAdd);
-                        }
-                    }
-
-                    ConditionMetadataItem.setCollection("treatments", treatmentsIds);
-                }
-
-                if (!samples.isEmpty()) {
-                    ConditionMetadataItem.setAttribute("samples", samples);
-                }
-
-                if (!materialName.isEmpty()) {
-                    if (materials.containsKey(materialName)) {
-                        ConditionMetadataItem.setReference("material", materials.get(materialName));
-                    }
-                }
-
-                ConditionMetadataItem.setReference("experiment", ExperimentMetadataItem);
-
-                store(ConditionMetadataItem);
-
-                if (!conditions.containsKey(conditionName)) {
-                    conditions.put(conditionName, ConditionMetadataItem);
-                }
-
-            } catch (Exception e) {
-                LOG.info("Exception in processRNASeqExperimentConditions with key: " + key + " - " + e.getMessage());
-                continue;
-            }
-        }
-    }
-
-    private void processRNASeqExperimentComparison(File DESeq2File, String experimentShortName, String treatmentName, String controlName) throws ObjectStoreException, IOException {
-        Item ExperimentMetadataItem = experiments.get(experimentShortName);
+    private void processRNASeqExperimentComparison(File DESeq2File, StormExperimentMetadata expMeta, String treatmentName, String controlName) throws ObjectStoreException, IOException {
+        String experimentShortName = expMeta.experimentShortName;
         String fileName = DESeq2File.getName();
 
         if (fileName.endsWith("_DESeq2.tsv")) {
@@ -704,7 +205,7 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
                 String pvalue = line[columnIndexes.get("pvalue").intValue()];
                 String padj = line[columnIndexes.get("padj").intValue()];
 
-                Item IntegratedItem = createItem("RNASeqExperimentComparison");
+                Item integratedItem = createItem("RNASeqExperimentComparison");
 
                 if (!gene.isEmpty()) {
                     if(unresolvableGenes.get(gene) != null) {
@@ -714,53 +215,54 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
                     if(geneId == null) {
                         continue;
                     }
-                    IntegratedItem.setReference("gene", geneId);
+                    integratedItem.setReference("gene", geneId);
                 } else {
                     throw new BuildException("[processRNASeqExperimentComparison] gene was empty: " + fileName);
                 }
 
                 if (!geneEnsemblId.isEmpty()) {
-                    IntegratedItem.setAttribute("geneEnsemblId", geneEnsemblId);
+                    integratedItem.setAttribute("geneEnsemblId", geneEnsemblId);
                 }
 
-                if (conditions.containsKey(controlName)) {
-                    IntegratedItem.setReference("control", conditions.get(controlName));
+                if (expMeta.conditions.containsKey(controlName)) {
+                    integratedItem.setReference("control", expMeta.conditions.get(controlName));
                 } else {
                     continue;
                 }
-                if (conditions.containsKey(treatmentName)) {
-                    IntegratedItem.setReference("treatment", conditions.get(treatmentName));
+                if (expMeta.conditions.containsKey(treatmentName)) {
+                    integratedItem.setReference("treatment", expMeta.conditions.get(treatmentName));
                 } else {
                     continue;
                 }
 
                 if (!StringUtils.isEmpty(baseMean) && isDouble(baseMean)) {
-                    IntegratedItem.setAttribute("baseMean", baseMean);
+                    integratedItem.setAttribute("baseMean", baseMean);
                 }
                 if (!StringUtils.isEmpty(log2FoldChange) && isDouble(log2FoldChange)) {
-                    IntegratedItem.setAttribute("log2FoldChange", log2FoldChange);
+                    integratedItem.setAttribute("log2FoldChange", log2FoldChange);
                 }
                 if (!StringUtils.isEmpty(lfcSE) && isDouble(lfcSE)) {
-                    IntegratedItem.setAttribute("lfcSE", lfcSE);
+                    integratedItem.setAttribute("lfcSE", lfcSE);
                 }
                 if (!StringUtils.isEmpty(stat) && isDouble(stat)) {
-                    IntegratedItem.setAttribute("stat", stat);
+                    integratedItem.setAttribute("stat", stat);
                 }
                 if (!StringUtils.isEmpty(pvalue) && isDouble(pvalue)) {
-                    IntegratedItem.setAttribute("pvalue", pvalue);
+                    integratedItem.setAttribute("pvalue", pvalue);
                 }
                 if (!StringUtils.isEmpty(padj) && isDouble(padj)) {
-                    IntegratedItem.setAttribute("padj", padj);
+                    integratedItem.setAttribute("padj", padj);
                 }
 
-                IntegratedItem.setReference("experiment", ExperimentMetadataItem);
-                store(IntegratedItem);
+                integratedItem.setReference("experiment", expMeta.experiment);
+                store(integratedItem);
             }
         }
     }
 
-    private void processRNASeqExperimentGeneCount(File geneCountsFile, String experimentShortName) throws ObjectStoreException, IOException {
-        Item ExperimentMetadataItem = experiments.get(experimentShortName);
+
+    private void processRNASeqExperimentGeneCount(File geneCountsFile, StormExperimentMetadata expMeta) throws ObjectStoreException, IOException {
+        String experimentShortName = expMeta.experimentShortName;
         String fileAbsPath = geneCountsFile.getAbsolutePath();
         Iterator<?> lineIter = FormattedTextParser.parseTabDelimitedReader(new FileReader(fileAbsPath));
         String[] firstLine = (String[]) lineIter.next();
@@ -779,7 +281,7 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
                 for (int i = 2; i < line.length; i++) {
                     String count = line[i];
                     String runForThisItem = runs.get(i-2);
-                    Item IntegratedItem = createItem("RNASeqExperimentFeatureCounts");
+                    Item integratedItem = createItem("RNASeqExperimentFeatureCounts");
                     if (!gene.isEmpty()) {
                         if (unresolvableGenes.get(gene) != null) {
                             continue;
@@ -788,25 +290,25 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
                         if (geneId == null) {
                             continue;
                         }
-                        IntegratedItem.setReference("gene", geneId);
+                        integratedItem.setReference("gene", geneId);
                     } else {
                         continue;
                     }
 
                     if (!geneEnsemblId.isEmpty()) {
-                        IntegratedItem.setAttribute("geneEnsemblId", geneEnsemblId);
+                        integratedItem.setAttribute("geneEnsemblId", geneEnsemblId);
                     }
                     if (!StringUtils.isEmpty(runForThisItem)) {
-                        IntegratedItem.setAttribute("run", runForThisItem);
+                        integratedItem.setAttribute("run", runForThisItem);
                     } else {
                         continue;
                     }
                     if (!StringUtils.isEmpty(count) && isDouble(count)) {
-                        IntegratedItem.setAttribute("count", count);
+                        integratedItem.setAttribute("count", count);
                     }
 
-                    IntegratedItem.setReference("experiment", ExperimentMetadataItem);
-                    store(IntegratedItem);
+                    integratedItem.setReference("experiment", expMeta.experiment);
+                    store(integratedItem);
                 }
             } catch (Exception e) {
                 LOG.info("Exception in processRNASeqExperimentGeneCount with gene: " + gene + " - " + e.getMessage());
@@ -814,6 +316,7 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
             }
         }
     }
+
 
     private Map<String, File> readDirectoriesInDir(File dir) {
         Map<String, File> files = new HashMap<String, File>();
