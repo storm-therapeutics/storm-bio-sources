@@ -65,19 +65,19 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
 
         for (File jsonFile : jsonFiles) {
             // read experiment metadata:
-            StormExperimentMetadata expMeta = new StormExperimentMetadata(this);
-            expMeta.processJSONFile(jsonFile);
+            StormOmicsMetadata meta = new StormOmicsMetadata(this);
+            meta.processJSONFile(jsonFile);
             // find matching results:
-            File experimentDir = new File(dataDir.getAbsolutePath(), expMeta.experimentShortName);
+            File experimentDir = new File(dataDir.getAbsolutePath(), meta.experimentShortName);
             Map<String, File> filesInDir = readFilesInDir(experimentDir);
 
             // Process differential expression results
-            for (StormExperimentMetadata.ConditionsPair comparison : expMeta.comparisons) {
+            for (StormOmicsMetadata.ConditionsPair comparison : meta.comparisons) {
                 String fileName = comparison.treatment + "_vs_" + comparison.control + "_DESeq2.tsv";
 
                 if (filesInDir.get(fileName) != null) {
                     File deSeq2File = filesInDir.get(fileName);
-                    processRNASeqExperimentComparison(deSeq2File, expMeta, comparison.treatment, comparison.control);
+                    processRNASeqExperimentComparison(deSeq2File, meta, comparison.treatment, comparison.control);
                 } else {
                     LOG.info("Failed to find DESeq2 file: " + fileName);
                     continue;
@@ -86,11 +86,11 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
             }
 
             // Process feature counts
-            LOG.info("StormRnaseqDataConverter [processConfigFile] - Processing 5: " + expMeta.experimentShortName);
+            LOG.info("StormRnaseqDataConverter [processConfigFile] - Processing 5: " + meta.experimentShortName);
             String fileName = "salmon.merged.gene_counts.tsv";
             File geneCountsFile = filesInDir.get(fileName);
             if (geneCountsFile != null) {
-                processRNASeqExperimentGeneCount(geneCountsFile, expMeta);
+                processRNASeqExperimentGeneCount(geneCountsFile, meta);
             } else {
                 LOG.info("Failed to find counts file: " + fileName);
                 continue;
@@ -98,9 +98,9 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
             }
 
             // Store the experiment
-            LOG.info("Storing experiment: " + expMeta.experimentShortName);
+            LOG.info("Storing experiment: " + meta.experimentShortName);
             try {
-                store(expMeta.experiment);
+                store(meta.experiment);
             } catch (Exception e) {
                 throw new RuntimeException("Error storing StormRNASeqExperiment ", e);
             }
@@ -182,8 +182,8 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
 
 
 
-    private void processRNASeqExperimentComparison(File DESeq2File, StormExperimentMetadata expMeta, String treatmentName, String controlName) throws ObjectStoreException, IOException {
-        String experimentShortName = expMeta.experimentShortName;
+    private void processRNASeqExperimentComparison(File DESeq2File, StormOmicsMetadata meta, String treatmentName, String controlName) throws ObjectStoreException, IOException {
+        String experimentShortName = meta.experimentShortName;
         String fileName = DESeq2File.getName();
 
         if (fileName.endsWith("_DESeq2.tsv")) {
@@ -224,13 +224,13 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
                     integratedItem.setAttribute("geneEnsemblId", geneEnsemblId);
                 }
 
-                if (expMeta.conditions.containsKey(controlName)) {
-                    integratedItem.setReference("control", expMeta.conditions.get(controlName));
+                if (meta.conditions.containsKey(controlName)) {
+                    integratedItem.setReference("control", meta.conditions.get(controlName));
                 } else {
                     continue;
                 }
-                if (expMeta.conditions.containsKey(treatmentName)) {
-                    integratedItem.setReference("treatment", expMeta.conditions.get(treatmentName));
+                if (meta.conditions.containsKey(treatmentName)) {
+                    integratedItem.setReference("treatment", meta.conditions.get(treatmentName));
                 } else {
                     continue;
                 }
@@ -254,15 +254,15 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
                     integratedItem.setAttribute("padj", padj);
                 }
 
-                integratedItem.setReference("experiment", expMeta.experiment);
+                integratedItem.setReference("experiment", meta.experiment);
                 store(integratedItem);
             }
         }
     }
 
 
-    private void processRNASeqExperimentGeneCount(File geneCountsFile, StormExperimentMetadata expMeta) throws ObjectStoreException, IOException {
-        String experimentShortName = expMeta.experimentShortName;
+    private void processRNASeqExperimentGeneCount(File geneCountsFile, StormOmicsMetadata meta) throws ObjectStoreException, IOException {
+        String experimentShortName = meta.experimentShortName;
         String fileAbsPath = geneCountsFile.getAbsolutePath();
         Iterator<?> lineIter = FormattedTextParser.parseTabDelimitedReader(new FileReader(fileAbsPath));
         String[] firstLine = (String[]) lineIter.next();
@@ -307,7 +307,7 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
                         integratedItem.setAttribute("count", count);
                     }
 
-                    integratedItem.setReference("experiment", expMeta.experiment);
+                    integratedItem.setReference("experiment", meta.experiment);
                     store(integratedItem);
                 }
             } catch (Exception e) {

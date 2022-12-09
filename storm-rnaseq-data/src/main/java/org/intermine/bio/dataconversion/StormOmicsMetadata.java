@@ -30,7 +30,7 @@ import org.intermine.xml.full.Item;
  *
  * @author Adrian Bazaga, Hendrik Weisser
  */
-public class StormExperimentMetadata
+public class StormOmicsMetadata
 {
     public class ConditionsPair
     {
@@ -52,9 +52,9 @@ public class StormExperimentMetadata
     public ArrayList<ConditionsPair> comparisons = new ArrayList<>();
 
     private DataConverter converter; // needed to create and store Items
-    private static final Logger LOG = Logger.getLogger(StormExperimentMetadata.class);
+    private static final Logger LOG = Logger.getLogger(StormOmicsMetadata.class);
 
-    public StormExperimentMetadata(DataConverter converter) {
+    public StormOmicsMetadata(DataConverter converter) {
         this.converter = converter;
     }
 
