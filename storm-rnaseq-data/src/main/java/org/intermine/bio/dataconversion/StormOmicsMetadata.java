@@ -26,7 +26,7 @@ import org.intermine.objectstore.ObjectStoreException;
 import org.intermine.xml.full.Item;
 
 /**
- * Read experiment metadata from JSON and store in InterMine
+ * Read omics experiment metadata from JSON and store in InterMine
  *
  * @author Adrian Bazaga, Hendrik Weisser
  */
@@ -59,88 +59,83 @@ public class StormOmicsMetadata
     }
 
 
-    public void processJSONFile(File jsonFile) throws ObjectStoreException, IOException {
-        Reader reader = new FileReader(jsonFile);
-        // TODO: read file content directly into JSON object (without BufferedReader/single-line String)
-        try (BufferedReader br = new BufferedReader(reader)) {
-            String line;
-            while ((line = br.readLine()) != null) {
-                try {
-                    JSONObject jsonObject = new JSONObject(line);
-
-                    // Get the experiment key
-                    JSONObject experimentJson = jsonObject.getJSONObject("experiment");
-
-                    // Get the experiment metadata
-                    experimentShortName = experimentJson.getString("short name");
-                    String experimentName = experimentJson.getString("name");
-                    String experimentProject = experimentJson.getString("project");
-                    String experimentContactPerson = experimentJson.getString("contact person");
-                    String experimentDate = experimentJson.getString("date");
-                    String experimentSequencing = experimentJson.getString("sequencing");
-                    String experimentProvider = experimentJson.getString("provider");
-                    String experimentDotmaticsReference = experimentJson.getString("Dotmatics reference");
-
-                    LOG.info("StormRnaseqDataConverter [processJSONFile] - Processing 1: " + experimentShortName);
-
-                    // Save the item
-                    experiment = converter.createItem("RNASeqExperimentMetadata");
-
-                    if (!experimentName.isEmpty()) {
-                        experiment.setAttribute("name", experimentName);
-                    }
-                    if (!experimentShortName.isEmpty()) {
-                        experiment.setAttribute("shortName", experimentShortName);
-                    }
-                    if (!experimentProject.isEmpty()) {
-                        experiment.setAttribute("project", experimentProject);
-                    }
-                    if (!experimentContactPerson.isEmpty()) {
-                        experiment.setAttribute("contactPerson", experimentContactPerson);
-                    }
-                    if (!experimentDate.isEmpty()) {
-                        experiment.setAttribute("date", experimentDate);
-                    }
-                    if (!experimentSequencing.isEmpty()) {
-                        experiment.setAttribute("sequencing", experimentSequencing);
-                    }
-                    if (!experimentProvider.isEmpty()) {
-                        experiment.setAttribute("provider", experimentProvider);
-                    }
-                    if (!experimentDotmaticsReference.isEmpty()) {
-                        experiment.setAttribute("dotmaticsReference", experimentDotmaticsReference);
-                    }
-                    //store(experiment);
-
-                    // Process materials
-                    LOG.info("StormRnaseqDataConverter [processJSONFile] - Processing 2: " + experimentShortName);
-                    JSONObject materialsJson = jsonObject.getJSONObject("materials");
-                    processRNASeqExperimentMaterials(materialsJson);
-
-                    // Process treatments
-                    LOG.info("StormRnaseqDataConverter [processJSONFile] - Processing 3: " + experimentShortName);
-                    JSONObject treatmentsJson = jsonObject.getJSONObject("treatments");
-                    processRNASeqExperimentTreatments(treatmentsJson);
-
-                    // Process conditions
-                    JSONObject conditionsJson = jsonObject.getJSONObject("conditions");
-                    processRNASeqExperimentConditions(conditionsJson);
-
-                    // Process each comparison individually
-                    LOG.info("StormRnaseqDataConverter [processJSONFile] - Processing 4: " + experimentShortName);
-                    JSONArray experimentComparisons = (JSONArray)jsonObject.get("comparisons");
-                    for (int i = 0; i < experimentComparisons.length(); i++) {
-                        JSONObject comparison = experimentComparisons.getJSONObject(i);
-                        JSONObject treatmentObject = comparison.getJSONObject("treatment");
-                        JSONObject controlObject = comparison.getJSONObject("control");
-                        comparisons.add(new ConditionsPair(treatmentObject.getString("name"),
-                                                           controlObject.getString("name")));
-                    }
-                }
-                catch (JSONException err) {
-                    throw new RuntimeException("Failed to read the following JSON: " + line, err);
-                }
+    /// Convert a string (YAML entry) into an attribute name for an InterMine Item
+    private String convertToAttributeName(String name) {
+        if (name.isEmpty())
+            return name;
+        StringBuilder builder = new StringBuilder();
+        builder.append(name.substring(0, 1).toLowerCase());
+        boolean afterSpace = false;
+        for (int i = 1; i < name.length(); ++i) {
+            char currentChar = name.charAt(i);
+            if (currentChar == ' ') { // skip space, capitalize next letter
+                afterSpace = true;
             }
+            else if (afterSpace) {
+                builder.append(Character.toUpperCase(currentChar));
+                afterSpace = false;
+            }
+            else {
+                builder.append(currentChar);
+            }
+        }
+        return builder.toString();
+    }
+
+
+    private void extractAttributesFromJSON(JSONObject json, String[] expectedEntries, Item item) {
+        for (String entry : expectedEntries) {
+            if (json.has(entry)) {
+                String value = json.getString(entry);
+                String name = convertToAttributeName(entry);
+                item.setAttribute(name, value);
+            }
+        }
+    }
+
+
+    public void processJSONFile(File jsonFile) throws ObjectStoreException, IOException {
+        try (Reader reader = new FileReader(jsonFile)) {
+            JSONTokener tokener = new JSONTokener(reader);
+            JSONObject json = new JSONObject(tokener);
+
+            // Get the experiment metadata
+            LOG.info("StormOmicsMetadata [processJSONFile] - Processing 1: " + experimentShortName);
+            experiment = converter.createItem("RNASeqExperimentMetadata");
+            JSONObject experimentJson = json.getJSONObject("experiment");
+            String[] expectedEntries = {"short name", "name", "project", "contact person", "date",
+                                        "provider", "sequencing", "Dotmatics reference", "species"};
+            extractAttributesFromJSON(experimentJson, expectedEntries, experiment);
+
+            // @TODO: rewrite other 'process...' methods to use 'extractAttributesFromJSON'
+
+            // Process materials
+            LOG.info("StormOmicsMetadata [processJSONFile] - Processing 2: " + experimentShortName);
+            JSONObject materialsJson = json.getJSONObject("materials");
+            processRNASeqExperimentMaterials(materialsJson);
+
+            // Process treatments
+            LOG.info("StormOmicsMetadata [processJSONFile] - Processing 3: " + experimentShortName);
+            JSONObject treatmentsJson = json.getJSONObject("treatments");
+            processRNASeqExperimentTreatments(treatmentsJson);
+
+            // Process conditions
+            JSONObject conditionsJson = json.getJSONObject("conditions");
+            processRNASeqExperimentConditions(conditionsJson);
+
+            // Process each comparison individually
+            LOG.info("StormOmicsMetadata [processJSONFile] - Processing 4: " + experimentShortName);
+            JSONArray experimentComparisons = (JSONArray)json.get("comparisons");
+            for (int i = 0; i < experimentComparisons.length(); i++) {
+                JSONObject comparison = experimentComparisons.getJSONObject(i);
+                JSONObject treatmentObject = comparison.getJSONObject("treatment");
+                JSONObject controlObject = comparison.getJSONObject("control");
+                comparisons.add(new ConditionsPair(treatmentObject.getString("name"),
+                                                   controlObject.getString("name")));
+            }
+        }
+        catch (JSONException err) {
+            throw new RuntimeException("Failed to read JSON from file. Error was: ", err);
         }
     }
 
@@ -171,10 +166,6 @@ public class StormOmicsMetadata
                     if (materialObject.has("tissue")) {
                         cellLineTissue = materialObject.getString("tissue");
                     }
-                    String cellLineSpecies = "";
-                    if (materialObject.has("species")) {
-                        cellLineSpecies = materialObject.getString("species");
-                    }
 
                     // Save the item
                     Item materialMetadataItem = converter.createItem("RNASeqExperimentMaterial");
@@ -187,9 +178,6 @@ public class StormOmicsMetadata
                     }
                     if (!cellLineTissue.isEmpty()) {
                         materialMetadataItem.setAttribute("tissue", cellLineTissue);
-                    }
-                    if (!cellLineSpecies.isEmpty()) {
-                        materialMetadataItem.setAttribute("species", cellLineSpecies);
                     }
 
                     materialMetadataItem.setReference("experiment", experiment);
@@ -215,10 +203,6 @@ public class StormOmicsMetadata
                     if (materialObject.has("tissue")) {
                         tumourTissue = materialObject.getString("tissue");
                     }
-                    String tumourSpecies = "";
-                    if (materialObject.has("species")) {
-                        tumourSpecies = materialObject.getString("species");
-                    }
 
                     // Save the item
                     Item materialMetadataItem = converter.createItem("RNASeqExperimentMaterial");
@@ -234,9 +218,6 @@ public class StormOmicsMetadata
                     }
                     if (!tumourTissue.isEmpty()) {
                         materialMetadataItem.setAttribute("tissue", tumourTissue);
-                    }
-                    if (!tumourSpecies.isEmpty()) {
-                        materialMetadataItem.setAttribute("species", tumourSpecies);
                     }
 
                     materialMetadataItem.setReference("experiment", experiment);
@@ -254,10 +235,6 @@ public class StormOmicsMetadata
                     if (materialObject.has("tissue")) {
                         tissueTissue = materialObject.getString("tissue");
                     }
-                    String tissueSpecies = "";
-                    if (materialObject.has("species")) {
-                        tissueSpecies = materialObject.getString("species");
-                    }
 
                     // Save the item
                     Item materialMetadataItem = converter.createItem("RNASeqExperimentMaterial");
@@ -267,9 +244,6 @@ public class StormOmicsMetadata
                     }
                     if (!tissueTissue.isEmpty()) {
                         materialMetadataItem.setAttribute("tissue", tissueTissue);
-                    }
-                    if (!tissueSpecies.isEmpty()) {
-                        materialMetadataItem.setAttribute("species", tissueSpecies);
                     }
 
                     materialMetadataItem.setReference("experiment", experiment);
@@ -481,7 +455,7 @@ public class StormOmicsMetadata
                 ArrayList<String> samplesArray = new ArrayList<String>();
                 JSONObject samplesJson = conditionsKeysJSON.getJSONObject("samples");
                 Iterator<String> samplesKeys = samplesJson.keys();
-                while(samplesKeys.hasNext()) {
+                while (samplesKeys.hasNext()) {
                     String sampleKey = samplesKeys.next();
                     samplesArray.add(sampleKey);
                 }
@@ -491,7 +465,7 @@ public class StormOmicsMetadata
                 // Treatments
                 ArrayList<String> treatmentsArray = new ArrayList<String>();
                 JSONArray treatmentsJson = conditionsKeysJSON.getJSONArray("treatments");
-                for(int i = 0; i < treatmentsJson.length(); i++) {
+                for (int i = 0; i < treatmentsJson.length(); i++) {
                     treatmentsArray.add(treatmentsJson.getString(i));
                 }
 
@@ -510,7 +484,7 @@ public class StormOmicsMetadata
                     //conditionMetadataItem.setAttribute("treatments", treatments);
                     List<String> treatmentsIds = new ArrayList<>();
 
-                    for(int i = 0; i < treatmentsArray.size(); i++) {
+                    for (int i = 0; i < treatmentsArray.size(); i++) {
                         String treatmentNameToAdd = treatmentsArray.get(i);
                         if (treatments.containsKey(treatmentNameToAdd)) {
                             String treatmentIdToAdd = treatments.get(treatmentNameToAdd).getIdentifier();
