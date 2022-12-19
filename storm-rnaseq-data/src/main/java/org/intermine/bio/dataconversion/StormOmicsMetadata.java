@@ -19,6 +19,7 @@ import java.io.Reader;
 import java.util.*;
 
 import org.apache.commons.lang.StringUtils;
+import org.apache.commons.io.FilenameUtils;
 import org.apache.log4j.Logger;
 
 import org.intermine.dataconversion.DataConverter;
@@ -27,6 +28,8 @@ import org.intermine.xml.full.Item;
 
 /**
  * Read omics experiment metadata from JSON and store in InterMine
+ *
+ * The metadata file is validated against the schema and additional constraints before export to JSON, so we can assume it is "correct" and do not need to check.
  *
  * @author Adrian Bazaga, Hendrik Weisser
  */
@@ -49,6 +52,7 @@ public class StormOmicsMetadata
     public Map<String, Item> materials = new HashMap<>();
     public Map<String, Item> treatments = new HashMap<>();
     public Map<String, Item> conditions = new HashMap<>();
+    public Map<String, Item> samples = new HashMap<>();
     public ArrayList<ConditionsPair> comparisons = new ArrayList<>();
 
     private DataConverter converter; // needed to create and store Items
@@ -83,7 +87,7 @@ public class StormOmicsMetadata
     }
 
 
-    private void extractAttributesFromJSON(JSONObject json, String[] expectedEntries, Item item) {
+    private void extractAttributesFromJSON(JSONObject json, Iterable<String> expectedEntries, Item item) {
         for (String entry : expectedEntries) {
             if (json.has(entry)) {
                 String value = json.getString(entry);
@@ -100,38 +104,39 @@ public class StormOmicsMetadata
             JSONObject json = new JSONObject(tokener);
 
             // Get the experiment metadata
-            LOG.info("StormOmicsMetadata [processJSONFile] - Processing 1: " + experimentShortName);
+            LOG.debug("StormOmicsMetadata [processJSONFile] - processing experiment: " + experimentShortName);
             experiment = converter.createItem("RNASeqExperimentMetadata");
             JSONObject experimentJson = json.getJSONObject("experiment");
-            String[] expectedEntries = {"short name", "name", "project", "contact person", "date",
-                                        "provider", "sequencing", "Dotmatics reference", "species"};
+            List<String> expectedEntries = List.of("short name", "name", "project", "contact person", "date",
+                                                   "provider", "sequencing", "Dotmatics reference", "species");
             extractAttributesFromJSON(experimentJson, expectedEntries, experiment);
-
-            // @TODO: rewrite other 'process...' methods to use 'extractAttributesFromJSON'
+            converter.store(experiment);
 
             // Process materials
-            LOG.info("StormOmicsMetadata [processJSONFile] - Processing 2: " + experimentShortName);
+            LOG.debug("StormOmicsMetadata [processJSONFile] - processing materials: " + experimentShortName);
             JSONObject materialsJson = json.getJSONObject("materials");
-            processRNASeqExperimentMaterials(materialsJson);
+            processMetadataMaterials(materialsJson);
 
             // Process treatments
-            LOG.info("StormOmicsMetadata [processJSONFile] - Processing 3: " + experimentShortName);
+            LOG.debug("StormOmicsMetadata [processJSONFile] - processing treatments: " + experimentShortName);
             JSONObject treatmentsJson = json.getJSONObject("treatments");
-            processRNASeqExperimentTreatments(treatmentsJson);
+            processMetadataTreatments(treatmentsJson);
 
             // Process conditions
+            LOG.debug("StormOmicsMetadata [processJSONFile] - processing conditions: " + experimentShortName);
             JSONObject conditionsJson = json.getJSONObject("conditions");
-            processRNASeqExperimentConditions(conditionsJson);
+            processMetadataConditions(conditionsJson);
 
             // Process each comparison individually
-            LOG.info("StormOmicsMetadata [processJSONFile] - Processing 4: " + experimentShortName);
-            JSONArray experimentComparisons = (JSONArray)json.get("comparisons");
+            // TODO: comparisons don't get stored in the database - do we need to process them at all?
+            LOG.debug("StormOmicsMetadata [processJSONFile] - processing comparisons: " + experimentShortName);
+            JSONArray experimentComparisons = json.getJSONArray("comparisons");
             for (int i = 0; i < experimentComparisons.length(); i++) {
                 JSONObject comparison = experimentComparisons.getJSONObject(i);
-                JSONObject treatmentObject = comparison.getJSONObject("treatment");
-                JSONObject controlObject = comparison.getJSONObject("control");
-                comparisons.add(new ConditionsPair(treatmentObject.getString("name"),
-                                                   controlObject.getString("name")));
+                JSONObject treatment = comparison.getJSONObject("treatment");
+                JSONObject control = comparison.getJSONObject("control");
+                comparisons.add(new ConditionsPair(treatment.getString("name"),
+                                                   control.getString("name")));
             }
         }
         catch (JSONException err) {
@@ -140,381 +145,148 @@ public class StormOmicsMetadata
     }
 
 
-    private void processRNASeqExperimentMaterials(JSONObject materialsJson) {
+    private void processMetadataMaterials(JSONObject materialsJson) {
         // Iterate over each material
-        Iterator<String> keys = materialsJson.keys();
-
-        while (keys.hasNext()) {
-            String key = keys.next();
+        for (String materialName : materialsJson.keySet()) {
             try {
-                // Now we have the material
-                String materialName = key;
-
-                // There should only be one key under this
-                JSONObject materialTypeKeysJSON = materialsJson.getJSONObject(key);
-
-                if (materialTypeKeysJSON.has("cell line")) {
-                    String materialType = "cell line";
-                    // Get the material object
-                    JSONObject materialObject = materialTypeKeysJSON.getJSONObject(materialType);
-
-                    String cellLineName = "";
-                    if (materialObject.has("name")) {
-                        cellLineName = materialObject.getString("name");
-                    }
-                    String cellLineTissue = "";
-                    if (materialObject.has("tissue")) {
-                        cellLineTissue = materialObject.getString("tissue");
-                    }
-
-                    // Save the item
-                    Item materialMetadataItem = converter.createItem("RNASeqExperimentMaterial");
-
-                    if (!materialType.isEmpty()) {
-                        materialMetadataItem.setAttribute("materialType", materialType);
-                    }
-                    if (!cellLineName.isEmpty()) {
-                        materialMetadataItem.setAttribute("name", cellLineName);
-                    }
-                    if (!cellLineTissue.isEmpty()) {
-                        materialMetadataItem.setAttribute("tissue", cellLineTissue);
-                    }
-
-                    materialMetadataItem.setReference("experiment", experiment);
-                    converter.store(materialMetadataItem);
-
-                    if (!materials.containsKey(materialName)) {
-                        materials.put(materialName, materialMetadataItem);
-                    }
-                } else if (materialTypeKeysJSON.has("tumour")) {
-                    String materialType = "tumour";
-                    // Get the material object
-                    JSONObject materialObject = materialTypeKeysJSON.getJSONObject(materialType);
-
-                    String tumourPrimaryDisease = "";
-                    if (materialObject.has("primary disease")) {
-                        tumourPrimaryDisease = materialObject.getString("primary disease");
-                    }
-                    String tumourDiseaseSubtype = "";
-                    if (materialObject.has("disease subtype")) {
-                        tumourDiseaseSubtype = materialObject.getString("disease subtype");
-                    }
-                    String tumourTissue = "";
-                    if (materialObject.has("tissue")) {
-                        tumourTissue = materialObject.getString("tissue");
-                    }
-
-                    // Save the item
-                    Item materialMetadataItem = converter.createItem("RNASeqExperimentMaterial");
-
-                    if (!materialType.isEmpty()) {
-                        materialMetadataItem.setAttribute("materialType", materialType);
-                    }
-                    if (!tumourPrimaryDisease.isEmpty()) {
-                        materialMetadataItem.setAttribute("primaryDisease", tumourPrimaryDisease);
-                    }
-                    if (!tumourDiseaseSubtype.isEmpty()) {
-                        materialMetadataItem.setAttribute("diseaseSubtype", tumourDiseaseSubtype);
-                    }
-                    if (!tumourTissue.isEmpty()) {
-                        materialMetadataItem.setAttribute("tissue", tumourTissue);
-                    }
-
-                    materialMetadataItem.setReference("experiment", experiment);
-                    converter.store(materialMetadataItem);
-
-                    if (!materials.containsKey(materialName)) {
-                        materials.put(materialName, materialMetadataItem);
-                    }
-                } else if (materialTypeKeysJSON.has("tissue")) {
-                    String materialType = "tissue";
-                    // Get the material object
-                    JSONObject materialObject = materialTypeKeysJSON.getJSONObject(materialType);
-
-                    String tissueTissue = "";
-                    if (materialObject.has("tissue")) {
-                        tissueTissue = materialObject.getString("tissue");
-                    }
-
-                    // Save the item
-                    Item materialMetadataItem = converter.createItem("RNASeqExperimentMaterial");
-
-                    if (!materialType.isEmpty()) {
-                        materialMetadataItem.setAttribute("materialType", materialType);
-                    }
-                    if (!tissueTissue.isEmpty()) {
-                        materialMetadataItem.setAttribute("tissue", tissueTissue);
-                    }
-
-                    materialMetadataItem.setReference("experiment", experiment);
-                    converter.store(materialMetadataItem);
-
-                    if (!materials.containsKey(materialName)) {
-                        materials.put(materialName, materialMetadataItem);
-                    }
-                }
-
-            } catch (Exception e) {
-                LOG.info("Exception in processRNASeqExperimentMaterials with key: " + key + " - " + e.getMessage());
-                continue;
-            }
-        }
-    }
-
-
-    private void processRNASeqExperimentTreatments(JSONObject treatmentsJson) {
-        // Iterate over each material
-        Iterator<String> keys = treatmentsJson.keys();
-
-        while(keys.hasNext()) {
-            String key = keys.next();
-            try {
-                // Now we have the material
-                String treatmentName = key;
-
-                // There should only be one key under this
-                JSONObject treatmentTypeKeysJSON = treatmentsJson.getJSONObject(key);
-
-                if(treatmentTypeKeysJSON.has("inhibitor")) {
-                    String treatmentType = "inhibitor";
-                    // Get the treatment object
-                    JSONObject treatmentObject = treatmentTypeKeysJSON.getJSONObject(treatmentType);
-
-                    String inhibitorName = "";
-                    if (treatmentObject.has("name")) {
-                        inhibitorName = treatmentObject.getString("name");
-                    }
-                    String targetGene = "";
-                    if (treatmentObject.has("target gene")) {
-                        targetGene = treatmentObject.getString("target gene");
-                    }
-                    String dotmaticsReference = "";
-                    if (treatmentObject.has("Dotmatics reference")) {
-                        dotmaticsReference = treatmentObject.getString("Dotmatics reference");
-                    }
-                    String dose = "";
-                    if (treatmentObject.has("dose")) {
-                        dose = treatmentObject.getString("dose");
-                    }
-                    String timePoint = "";
-                    if (treatmentObject.has("time point")) {
-                        timePoint = treatmentObject.getString("time point");
-                    }
-
-                    // Save the item
-                    Item treatmentMetadataItem = converter.createItem("RNASeqExperimentTreatment");
-                    treatmentMetadataItem.setAttribute("treatmentType", treatmentType);
-
-                    if (!key.isEmpty()) {
-                        treatmentMetadataItem.setAttribute("name", key);
-                    }
-                    if (!targetGene.isEmpty()) {
-                        treatmentMetadataItem.setAttribute("targetGene", targetGene);
-                    }
-                    if (!dotmaticsReference.isEmpty()) {
-                        treatmentMetadataItem.setAttribute("dotmaticsReference", dotmaticsReference);
-                    }
-                    if (!StringUtils.isEmpty(dose)) {
-                        treatmentMetadataItem.setAttribute("dose_concentration", dose);
-                    }
-                    if (!timePoint.isEmpty()) {
-                        treatmentMetadataItem.setAttribute("timePoint", timePoint);
-                    }
-
-                    treatmentMetadataItem.setReference("experiment", experiment);
-                    converter.store(treatmentMetadataItem);
-
-                    if (!treatments.containsKey(treatmentName)) {
-                        treatments.put(treatmentName, treatmentMetadataItem);
-                    }
-
-                } else if(treatmentTypeKeysJSON.has("knock-down")) {
-                    String treatmentType = "knock-down";
-                    // Get the treatment object
-                    JSONObject treatmentObject = treatmentTypeKeysJSON.getJSONObject(treatmentType);
-
-                    String inhibitorName = "";
-                    if (treatmentObject.has("name")) {
-                        inhibitorName = treatmentObject.getString("name");
-                    }
-                    String targetGene = "";
-                    if (treatmentObject.has("target gene")) {
-                        targetGene = treatmentObject.getString("target gene");
-                    }
-                    String concentration = "";
-                    if (treatmentObject.has("concentration")) {
-                        concentration = treatmentObject.getString("concentration");
-                    }
-                    String type = "";
-                    if (treatmentObject.has("type")) {
-                        type = treatmentObject.getString("type");
-                    }
-                    String timePoint = "";
-                    if (treatmentObject.has("time point")) {
-                        timePoint = treatmentObject.getString("time point");
-                    }
-
-                    // Save the item
-                    Item treatmentMetadataItem = converter.createItem("RNASeqExperimentTreatment");
-                    treatmentMetadataItem.setAttribute("treatmentType", treatmentType);
-
-                    if (!key.isEmpty()) {
-                        treatmentMetadataItem.setAttribute("name", key);
-                    }
-                    if (!targetGene.isEmpty()) {
-                        treatmentMetadataItem.setAttribute("targetGene", targetGene);
-                    }
-                    if (!StringUtils.isEmpty(concentration)) {
-                        treatmentMetadataItem.setAttribute("dose_concentration", concentration);
-                    }
-                    if (!type.isEmpty()) {
-                        treatmentMetadataItem.setAttribute("type", type);
-                    }
-                    if (!timePoint.isEmpty()) {
-                        treatmentMetadataItem.setAttribute("timePoint", timePoint);
-                    }
-
-                    treatmentMetadataItem.setReference("experiment", experiment);
-                    converter.store(treatmentMetadataItem);
-
-                    if (!treatments.containsKey(treatmentName)) {
-                        treatments.put(treatmentName, treatmentMetadataItem);
-                    }
-                }
-                else if (treatmentTypeKeysJSON.has("untargeted")) {
-                    String treatmentType = "untargeted";
-                    // Get the treatment object
-                    JSONObject treatmentObject = treatmentTypeKeysJSON.getJSONObject(treatmentType);
-
-                    String inhibitorName = "";
-                    if (treatmentObject.has("name")) {
-                        inhibitorName = treatmentObject.getString("name");
-                    }
-                    String targetGene = "";
-                    if (treatmentObject.has("target gene")) {
-                        targetGene = treatmentObject.getString("target gene");
-                    }
-                    String concentration = "";
-                    if (treatmentObject.has("concentration")) {
-                        concentration = treatmentObject.getString("concentration");
-                    }
-                    String type = "";
-                    if (treatmentObject.has("type")) {
-                        type = treatmentObject.getString("type");
-                    }
-                    String timePoint = "";
-                    if (treatmentObject.has("time point")) {
-                        timePoint = treatmentObject.getString("time point");
-                    }
-
-                    // Save the item
-                    Item treatmentMetadataItem = converter.createItem("RNASeqExperimentTreatment");
-                    treatmentMetadataItem.setAttribute("treatmentType", treatmentType);
-
-                    if (!key.isEmpty()) {
-                        treatmentMetadataItem.setAttribute("name", key);
-                    }
-                    if (!StringUtils.isEmpty(concentration)) {
-                        treatmentMetadataItem.setAttribute("dose_concentration", concentration);
-                    }
-                    if (!timePoint.isEmpty()) {
-                        treatmentMetadataItem.setAttribute("timePoint", timePoint);
-                    }
-
-                    treatmentMetadataItem.setReference("experiment", experiment);
-                    converter.store(treatmentMetadataItem);
-
-                    if (!treatments.containsKey(treatmentName)) {
-                        treatments.put(treatmentName, treatmentMetadataItem);
-                    }
-                }
-            } catch (Exception e) {
-                LOG.info("Exception in processRNASeqExperimentTreatments with key: " + key + " - " + e.getMessage());
-                continue;
-            }
-        }
-    }
-
-
-    private void processRNASeqExperimentConditions(JSONObject conditionsJson) {
-        // Iterate over each condition
-        Iterator<String> keys = conditionsJson.keys();
-
-        while(keys.hasNext()) {
-            String key = keys.next();
-            try {
-                // Now we have the condition
-                String conditionName = key;
-
-                // There should only be one key under this
-                JSONObject conditionsKeysJSON = conditionsJson.getJSONObject(conditionName);
-
-                String materialName = conditionsKeysJSON.getString("material");
-
-                // Samples
-                ArrayList<String> samplesArray = new ArrayList<String>();
-                JSONObject samplesJson = conditionsKeysJSON.getJSONObject("samples");
-                Iterator<String> samplesKeys = samplesJson.keys();
-                while (samplesKeys.hasNext()) {
-                    String sampleKey = samplesKeys.next();
-                    samplesArray.add(sampleKey);
-                }
-
-                String samples = String.join(", ", samplesArray);
-
-                // Treatments
-                ArrayList<String> treatmentsArray = new ArrayList<String>();
-                JSONArray treatmentsJson = conditionsKeysJSON.getJSONArray("treatments");
-                for (int i = 0; i < treatmentsJson.length(); i++) {
-                    treatmentsArray.add(treatmentsJson.getString(i));
-                }
-
-                //String treatments = String.join(", ", treatmentsArray);
+                JSONObject material = materialsJson.getJSONObject(materialName);
+                // There should only be one key under this - what type of material:
+                String materialType = material.keys().next();
 
                 // Save the item
-                Item conditionMetadataItem = converter.createItem("RNASeqExperimentCondition");
+                Item materialItem = converter.createItem("StormOmicsMaterial");
+                materialItem.setAttribute("materialType", materialType);
+                materialItem.setReference("experiment", experiment);
 
-                if (!treatmentsArray.isEmpty()) {
-                    conditionMetadataItem.setAttribute("name", conditionName);
-                } else {
-                    continue;
+                ArrayList<String> expectedEntries = new ArrayList<>(List.of("tissue"));
+                if (materialType.equals("cell line")) {
+                    expectedEntries.add("name");
+                }
+                else if (materialType.equals("tumour")) {
+                    expectedEntries.add("primary disease");
+                    expectedEntries.add("disease subtype");
+                }
+                // nothing to add for type "tissue"
+
+                extractAttributesFromJSON(material.getJSONObject(materialType), expectedEntries, materialItem);
+                converter.store(materialItem);
+                materials.put(materialName, materialItem);
+            }
+            catch (Exception e) {
+                LOG.info("Exception in processMetadataMaterials with key: " +
+                         materialName + " - " + e.getMessage());
+                continue;
+            }
+        }
+    }
+
+
+    private void processMetadataTreatments(JSONObject treatmentsJson) {
+        // Iterate over each treatment
+        for (String treatmentName : treatmentsJson.keySet()) {
+            try {
+                JSONObject treatment = treatmentsJson.getJSONObject(treatmentName);
+                // There should only be one key under this - what type of treatment:
+                String treatmentType = treatment.keys().next();
+
+                // Save the item
+                Item treatmentItem = converter.createItem("StormOmicsTreatment");
+                treatmentItem.setAttribute("treatmentType", treatmentType);
+                treatmentItem.setReference("experiment", experiment);
+
+                ArrayList<String> expectedEntries = new ArrayList<>(List.of("name", "time point"));
+                if (treatmentType.equals("inhibitor") || treatmentType.equals("activator")) {
+                    expectedEntries.add("target gene");
+                    expectedEntries.add("Dotmatics reference");
+                }
+                // nothing to add for types "knock-down", "overexpression", "untargeted" - but see below
+
+                JSONObject treatmentDetails = treatment.getJSONObject(treatmentType);
+                extractAttributesFromJSON(treatmentDetails, expectedEntries, treatmentItem);
+                // some entries/attributes need special handling because the names don't match exactly:
+                if (treatmentDetails.has("dose")) { // type "inhibitor" or "activator"
+                    treatmentItem.setAttribute("dose_concentration", treatmentDetails.getString("dose"));
+                }
+                else if (treatmentDetails.has("concentration")) { // other types
+                    treatmentItem.setAttribute("dose_concentration", treatmentDetails.getString("concentration"));
+                }
+                if (treatmentDetails.has("type")) { // type "knock-down" or "overexpression"
+                    treatmentItem.setAttribute("perturbationType", treatmentDetails.getString("type"));
                 }
 
-                if (!treatments.isEmpty()) {
-                    //conditionMetadataItem.setAttribute("treatments", treatments);
-                    List<String> treatmentsIds = new ArrayList<>();
+                converter.store(treatmentItem);
+                treatments.put(treatmentName, treatmentItem);
+            }
+            catch (Exception e) {
+                LOG.info("Exception in processMetadataTreatments with key: " +
+                         treatmentName + " - " + e.getMessage());
+                continue;
+            }
+        }
+    }
 
-                    for (int i = 0; i < treatmentsArray.size(); i++) {
-                        String treatmentNameToAdd = treatmentsArray.get(i);
-                        if (treatments.containsKey(treatmentNameToAdd)) {
-                            String treatmentIdToAdd = treatments.get(treatmentNameToAdd).getIdentifier();
-                            treatmentsIds.add(treatmentIdToAdd);
+
+    private void processMetadataConditions(JSONObject conditionsJson) {
+        // Iterate over each condition
+        for (String conditionName : conditionsJson.keySet()) {
+            try {
+                JSONObject condition = conditionsJson.getJSONObject(conditionName);
+
+                // Save the item
+                Item conditionItem = converter.createItem("StormOmicsCondition");
+
+                // exactly one material name per condition:
+                String materialName = condition.getString("material");
+                conditionItem.setReference("material", materials.get(materialName));
+
+                // zero or more treatment names:
+                JSONArray treatmentsJson = condition.optJSONArray("treatments");
+                if (treatmentsJson != null) {
+                    for (int i = 0; i < treatmentsJson.length(); i++) {
+                        String treatmentName = treatmentsJson.getString(i);
+                        conditionItem.addToCollection("treatments", treatments.get(treatmentName));
+                    }
+                }
+
+                // Samples
+                JSONObject samplesJson = condition.getJSONObject("samples");
+                for (String sampleName : samplesJson.keySet()) {
+                    JSONObject sample = samplesJson.getJSONObject(sampleName);
+                    String label = sample.optString("label");
+
+                    ArrayList<String> replicates = new ArrayList<String>();
+                    if (sample.has("file")) { // legacy format
+                        replicates.add(sample.getString("file"));
+                    }
+                    else {
+                        JSONArray replicatesJson = sample.getJSONArray("replicates");
+                        for (int i = 0; i < replicatesJson.length(); i++) {
+                            replicates.add(replicatesJson.getString(i));
                         }
                     }
-
-                    conditionMetadataItem.setCollection("treatments", treatmentsIds);
-                }
-
-                if (!samples.isEmpty()) {
-                    conditionMetadataItem.setAttribute("samples", samples);
-                }
-
-                if (!materialName.isEmpty()) {
-                    if (materials.containsKey(materialName)) {
-                        conditionMetadataItem.setReference("material", materials.get(materialName));
+                    // flatten the "sample: replicates" structure (JSON) and just store replicates as samples:
+                    for (String replicate : replicates) {
+                        Item sampleItem = converter.createItem("StormOmicsSample");
+                        sampleItem.setReference("experiment", experiment);
+                        sampleItem.setReference("condition", conditionItem);
+                        String replicateName = FilenameUtils.removeExtension(replicate);
+                        sampleItem.setAttribute("name", replicateName);
+                        sampleItem.setAttribute("file", replicate);
+                        sampleItem.setAttribute("bioReplicate", sampleName);
+                        if (label != null) {
+                            sampleItem.setAttribute("label", label);
+                        }
+                        converter.store(sampleItem);
+                        samples.put(replicateName, sampleItem);
                     }
                 }
 
-                conditionMetadataItem.setReference("experiment", experiment);
-
-                converter.store(conditionMetadataItem);
-
-                if (!conditions.containsKey(conditionName)) {
-                    conditions.put(conditionName, conditionMetadataItem);
-                }
-
-            } catch (Exception e) {
-                LOG.info("Exception in processRNASeqExperimentConditions with key: " + key + " - " + e.getMessage());
+                converter.store(conditionItem);
+                conditions.put(conditionName, conditionItem);
+            }
+            catch (Exception e) {
+                LOG.info("Exception in processRNASeqExperimentConditions with key: " +
+                         conditionName + " - " + e.getMessage());
                 continue;
             }
         }
