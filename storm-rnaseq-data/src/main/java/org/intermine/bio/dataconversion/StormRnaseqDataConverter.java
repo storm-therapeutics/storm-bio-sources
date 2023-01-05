@@ -67,6 +67,7 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
             StormOmicsMetadata meta = new StormOmicsMetadata(this);
             meta.processJSONFile(jsonFile);
 
+            LOG.info("Processing RNA-seq data for experiment: " + meta.experimentShortName);
             Item experiment = createItem("StormRNASeqExperiment");
             experiment.setReference("metadata", meta.experiment);
 
@@ -83,7 +84,7 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
                     LOG.info("Failed to find DESeq2 file: " + fileName);
                     continue;
                 }
-                processRNASeqComparison(deSeq2File, meta, comparison.treatment, comparison.control);
+                processRNASeqComparison(deSeq2File, experiment, meta, comparison.treatment, comparison.control);
             }
 
             // Process feature counts
@@ -91,7 +92,7 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
             String fileName = "salmon.merged.gene_counts.tsv";
             File geneCountsFile = filesInDir.get(fileName);
             if (geneCountsFile != null) {
-                processRNASeqGeneCounts(geneCountsFile, meta);
+                processRNASeqGeneCounts(geneCountsFile, experiment, meta);
             } else {
                 LOG.info("Failed to find feature counts file: " + fileName);
                 // continue; // abort or store experiment without counts?
@@ -132,10 +133,11 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
         }
         // check remaining columns (same for both formats):
         String[] moreColumns = {"baseMean", "log2FoldChange", "lfcSE", "stat", "pvalue", "padj"};
-        for (int i = header.length - moreColumns.length; i < header.length; i++) {
-            if (!header[i].equals(moreColumns[i])) {
+        for (int i = columns.size(); i < header.length; i++) {
+            int j = i - columns.size();
+            if (!header[i].equals(moreColumns[j])) {
                 throw new RuntimeException("Unexpected column name in DESeq2 file: '" +
-                                           header[i] + "' vs. '" + moreColumns[i] + "'");
+                                           header[i] + "' vs. '" + moreColumns[j] + "'");
             }
             indexes.put(header[i], i);
         }
@@ -144,8 +146,7 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
     }
 
 
-    private void processRNASeqComparison(File DESeq2File, StormOmicsMetadata meta, String treatmentName, String controlName) throws ObjectStoreException, IOException {
-        String experimentShortName = meta.experimentShortName;
+    private void processRNASeqComparison(File DESeq2File, Item experiment, StormOmicsMetadata meta, String treatmentName, String controlName) throws ObjectStoreException, IOException {
         String fileName = DESeq2File.getName();
         String fileAbsPath = DESeq2File.getAbsolutePath();
 
@@ -162,7 +163,7 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
             Item integratedItem = createItem("StormRNASeqComparison");
             // integratedItem.setAttribute("geneEnsemblId", ensemblId);
             integratedItem.setReference("gene", gene);
-            integratedItem.setReference("experiment", meta.experiment);
+            integratedItem.setReference("experiment", experiment);
             integratedItem.setReference("control", meta.conditions.get(controlName));
             integratedItem.setReference("treatment", meta.conditions.get(treatmentName));
 
@@ -171,7 +172,7 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
                 int index = entry.getValue();
                 String value = line[index];
                 if (!value.equals("NA")) {
-                    integratedItem.setAttribute("key", value);
+                    integratedItem.setAttribute(key, value);
                 }
             }
 
@@ -180,41 +181,57 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
     }
 
 
-    private void processRNASeqGeneCounts(File geneCountsFile, StormOmicsMetadata meta) throws ObjectStoreException, IOException {
-        String experimentShortName = meta.experimentShortName;
+    private void processRNASeqGeneCounts(File geneCountsFile, Item experiment, StormOmicsMetadata meta) throws ObjectStoreException, IOException {
         String fileAbsPath = geneCountsFile.getAbsolutePath();
         Iterator<String[]> lineIter = FormattedTextParser.parseTabDelimitedReader(new FileReader(fileAbsPath));
-        String[] firstLine = lineIter.next();
+        String[] header = lineIter.next();
 
-        ArrayList<String> runs = new ArrayList<String>();
-        for (int i = 2; i < firstLine.length; i++) {
-            String run = firstLine[i];
-            runs.add(run);
+        ArrayList<Item> samples = new ArrayList<Item>();
+        for (int i = 2; i < header.length; i++) {
+            String sampleName = header[i];
+            Item sample = null;
+            if (meta.samples.containsKey(sampleName)) {
+                sample = meta.samples.get(sampleName);
+            }
+            else if (sampleName.startsWith("X")) { // "X" may be added e.g. if sample name starts with a number
+                String suffix = sampleName.substring(1);
+                if (meta.samples.containsKey(suffix)) {
+                    sample = meta.samples.get(suffix);
+                }
+            }
+            samples.add(sample);
+            if (sample == null) {
+                LOG.error("Could not find sample corresponding to column in gene counts file: " + sampleName);
+            }
         }
 
         while (lineIter.hasNext()) {
             String[] line = lineIter.next();
+            if (line.length != header.length) {
+                LOG.error("Unexpected number of items per line: " + line.length + " vs. " + header.length);
+                continue;
+            }
+
             Item gene = getGene(line[0], null, line[1]); // no Entrez ID in this file
             if (gene == null) // could not find matching gene
                 continue;
 
             try {
-                for (int i = 2; i < line.length; i++) {
-                    String count = line[i];
-                    String runForThisItem = runs.get(i-2);
+                for (int i = 2; i < line.length; i++) { // store count for this gene and sample
+                    if (line[i].equals("0") || line[i].equals("0.0"))
+                        continue; // don't store zero counts
                     Item integratedItem = createItem("StormRNASeqFeatureCounts");
-                    integratedItem.setReference("experiment", meta.experiment);
+                    integratedItem.setReference("experiment", experiment);
                     integratedItem.setReference("gene", gene);
+                    integratedItem.setReference("sample", samples.get(i - 2));
                     // if (!geneEnsemblId.isEmpty()) {
                     //     integratedItem.setAttribute("geneEnsemblId", geneEnsemblId);
                     // }
-                    integratedItem.setAttribute("run", runForThisItem);
-                    // TODO: exclude zero counts?
-                    integratedItem.setAttribute("count", count);
+                    integratedItem.setAttribute("count", line[i]);
                     store(integratedItem);
                 }
             } catch (Exception e) {
-                LOG.info("Exception in processRNASeqGeneCount with gene: " + gene + " - " + e.getMessage());
+                LOG.info("Exception in processRNASeqGeneCount with gene: " + line[0] + " - " + e.getMessage());
                 continue;
             }
         }

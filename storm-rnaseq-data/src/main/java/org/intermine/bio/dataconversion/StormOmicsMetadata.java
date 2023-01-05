@@ -10,7 +10,6 @@ package org.intermine.bio.dataconversion;
  *
  */
 
-import org.json.*;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
@@ -18,9 +17,16 @@ import java.io.IOException;
 import java.io.Reader;
 import java.util.*;
 
+// for troubleshooting (see below):
+// import java.lang.ClassLoader;
+// import java.lang.System;
+// import java.net.URL;
+
 import org.apache.commons.lang.StringUtils;
 import org.apache.commons.io.FilenameUtils;
 import org.apache.log4j.Logger;
+
+import org.json.*;
 
 import org.intermine.dataconversion.DataConverter;
 import org.intermine.objectstore.ObjectStoreException;
@@ -60,6 +66,13 @@ public class StormOmicsMetadata
 
     public StormOmicsMetadata(DataConverter converter) {
         this.converter = converter;
+
+        // investigate "java.lang.NoSuchMethodError: 'java.util.Set org.json.JSONObject.keySet()'"
+        // (caused by different versions of org.json package):
+    //     ClassLoader classloader = org.json.JSONObject.class.getClassLoader();
+    //     URL res = classloader.getResource("org/json/JSONObject.class");
+    //     String path = res.getPath();
+    //     System.out.println("Core JSONObject came from: " + path);
     }
 
 
@@ -99,14 +112,16 @@ public class StormOmicsMetadata
 
 
     public void processJSONFile(File jsonFile) throws ObjectStoreException, IOException {
+        LOG.info("Reading metadata for omics experiment from file: " + jsonFile.getName());
         try (Reader reader = new FileReader(jsonFile)) {
             JSONTokener tokener = new JSONTokener(reader);
             JSONObject json = new JSONObject(tokener);
 
             // Get the experiment metadata
-            LOG.debug("StormOmicsMetadata [processJSONFile] - processing experiment: " + experimentShortName);
-            experiment = converter.createItem("RNASeqExperimentMetadata");
             JSONObject experimentJson = json.getJSONObject("experiment");
+            experimentShortName = experimentJson.getString("short name");
+            LOG.debug("StormOmicsMetadata [processJSONFile] - processing experiment: " + experimentShortName);
+            experiment = converter.createItem("StormOmicsExperiment");
             List<String> expectedEntries = List.of("short name", "name", "project", "contact person", "date",
                                                    "provider", "sequencing", "Dotmatics reference", "species");
             extractAttributesFromJSON(experimentJson, expectedEntries, experiment);
@@ -173,8 +188,8 @@ public class StormOmicsMetadata
                 materials.put(materialName, materialItem);
             }
             catch (Exception e) {
-                LOG.info("Exception in processMetadataMaterials with key: " +
-                         materialName + " - " + e.getMessage());
+                LOG.error("Exception in processMetadataMaterials with key: " +
+                          materialName + " - " + e.getMessage());
                 continue;
             }
         }
@@ -218,8 +233,8 @@ public class StormOmicsMetadata
                 treatments.put(treatmentName, treatmentItem);
             }
             catch (Exception e) {
-                LOG.info("Exception in processMetadataTreatments with key: " +
-                         treatmentName + " - " + e.getMessage());
+                LOG.error("Exception in processMetadataTreatments with key: " +
+                          treatmentName + " - " + e.getMessage());
                 continue;
             }
         }
@@ -273,7 +288,7 @@ public class StormOmicsMetadata
                         sampleItem.setAttribute("name", replicateName);
                         sampleItem.setAttribute("file", replicate);
                         sampleItem.setAttribute("bioReplicate", sampleName);
-                        if (label != null) {
+                        if (!label.isEmpty()) {
                             sampleItem.setAttribute("label", label);
                         }
                         converter.store(sampleItem);
@@ -285,8 +300,8 @@ public class StormOmicsMetadata
                 conditions.put(conditionName, conditionItem);
             }
             catch (Exception e) {
-                LOG.info("Exception in processRNASeqExperimentConditions with key: " +
-                         conditionName + " - " + e.getMessage());
+                LOG.error("Exception in processMetadataConditions with key: " +
+                          conditionName + " - " + e.getMessage());
                 continue;
             }
         }
