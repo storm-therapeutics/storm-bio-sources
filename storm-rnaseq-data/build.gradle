@@ -20,3 +20,7 @@ sourceSets {
 processResources {
     from('.') { include ("*.properties")}
 }
+
+dependencies {
+    implementation "org.json:json:20170516"
+}
