@@ -22,8 +22,6 @@ import java.util.*;
 // import java.lang.System;
 // import java.net.URL;
 
-import org.apache.commons.lang.StringUtils;
-import org.apache.commons.io.FilenameUtils;
 import org.apache.log4j.Logger;
 
 import org.json.*;
@@ -59,6 +57,7 @@ public class StormOmicsMetadata
     public Map<String, Item> treatments = new HashMap<>();
     public Map<String, Item> conditions = new HashMap<>();
     public Map<String, Item> samples = new HashMap<>();
+    public Map<String, ArrayList<String>> bioReplicates = new HashMap<>(); // replicate name -> list of sample names
     public ArrayList<ConditionsPair> comparisons = new ArrayList<>();
 
     private DataConverter converter; // needed to create and store Items
@@ -101,10 +100,22 @@ public class StormOmicsMetadata
 
 
     private void extractAttributesFromJSON(JSONObject json, Iterable<String> expectedEntries, Item item) {
+        extractAttributesFromJSON(json, expectedEntries, item, null);
+    }
+
+
+    private void extractAttributesFromJSON(JSONObject json, Iterable<String> expectedEntries,
+                                           Item item, String prefix) {
         for (String entry : expectedEntries) {
             if (json.has(entry)) {
                 String value = json.getString(entry);
-                String name = convertToAttributeName(entry);
+                String name;
+                if (prefix == null) {
+                    name = convertToAttributeName(entry);
+                }
+                else {
+                    name = convertToAttributeName(prefix + " " + entry);
+                }
                 item.setAttribute(name, value);
             }
         }
@@ -170,20 +181,20 @@ public class StormOmicsMetadata
 
                 // Save the item
                 Item materialItem = converter.createItem("StormOmicsMaterial");
+                materialItem.setAttribute("name", materialName);
                 materialItem.setAttribute("materialType", materialType);
                 materialItem.setReference("experiment", experiment);
 
-                ArrayList<String> expectedEntries = new ArrayList<>(List.of("tissue"));
+                JSONObject materialDetails = material.getJSONObject(materialType);
+                extractAttributesFromJSON(materialDetails, List.of("tissue"), materialItem);
                 if (materialType.equals("cell line")) {
-                    expectedEntries.add("name");
+                    extractAttributesFromJSON(materialDetails, List.of("name"), materialItem, "cell line");
                 }
                 else if (materialType.equals("tumour")) {
-                    expectedEntries.add("primary disease");
-                    expectedEntries.add("disease subtype");
+                    extractAttributesFromJSON(materialDetails, List.of("primary disease", "disease subtype"),
+                                              materialItem, "tumour");
                 }
-                // nothing to add for type "tissue"
 
-                extractAttributesFromJSON(material.getJSONObject(materialType), expectedEntries, materialItem);
                 converter.store(materialItem);
                 materials.put(materialName, materialItem);
             }
@@ -206,6 +217,7 @@ public class StormOmicsMetadata
 
                 // Save the item
                 Item treatmentItem = converter.createItem("StormOmicsTreatment");
+                treatmentItem.setAttribute("name", treatmentName);
                 treatmentItem.setAttribute("treatmentType", treatmentType);
                 treatmentItem.setReference("experiment", experiment);
 
@@ -225,9 +237,8 @@ public class StormOmicsMetadata
                 else if (treatmentDetails.has("concentration")) { // other types
                     treatmentItem.setAttribute("dose_concentration", treatmentDetails.getString("concentration"));
                 }
-                if (treatmentDetails.has("type")) { // type "knock-down" or "overexpression"
-                    treatmentItem.setAttribute("perturbationType", treatmentDetails.getString("type"));
-                }
+                // type "knock-down" or "overexpression":
+                extractAttributesFromJSON(treatmentDetails, List.of("type"), treatmentItem, "perturbation");
 
                 converter.store(treatmentItem);
                 treatments.put(treatmentName, treatmentItem);
@@ -249,6 +260,7 @@ public class StormOmicsMetadata
 
                 // Save the item
                 Item conditionItem = converter.createItem("StormOmicsCondition");
+                conditionItem.setAttribute("name", conditionName);
 
                 // exactly one material name per condition:
                 String materialName = condition.getString("material");
@@ -265,11 +277,16 @@ public class StormOmicsMetadata
 
                 // Samples
                 JSONObject samplesJson = condition.getJSONObject("samples");
+                int repCounter = 1; // counter for biological replicates
                 for (String sampleName : samplesJson.keySet()) {
                     JSONObject sample = samplesJson.getJSONObject(sampleName);
                     String label = sample.optString("label");
+                    // names for biological replicates as used for Nextflow RNA-seq analysis pipeline
+                    // (see "validate_yaml.py" script):
+                    String bioReplicate = conditionName + "_R" + repCounter;
+                    repCounter++;
 
-                    ArrayList<String> replicates = new ArrayList<String>();
+                    ArrayList<String> replicates = new ArrayList<String>(); // technical replicates
                     if (sample.has("file")) { // legacy format
                         replicates.add(sample.getString("file"));
                     }
@@ -280,20 +297,23 @@ public class StormOmicsMetadata
                         }
                     }
                     // flatten the "sample: replicates" structure (JSON) and just store replicates as samples:
-                    for (String replicate : replicates) {
+                    for (int i = 0; i < replicates.size(); i++) {
+                        String replicateFile = replicates.get(i);
+                        String replicateName = replicateFile.split("\\.")[0]; // remove file extension(s)
                         Item sampleItem = converter.createItem("StormOmicsSample");
                         sampleItem.setReference("experiment", experiment);
                         sampleItem.setReference("condition", conditionItem);
-                        String replicateName = FilenameUtils.removeExtension(replicate);
                         sampleItem.setAttribute("name", replicateName);
-                        sampleItem.setAttribute("file", replicate);
+                        sampleItem.setAttribute("file", replicateFile);
                         sampleItem.setAttribute("bioReplicate", sampleName);
                         if (!label.isEmpty()) {
                             sampleItem.setAttribute("label", label);
                         }
                         converter.store(sampleItem);
                         samples.put(replicateName, sampleItem);
+                        replicates.set(i, replicateName); // for use in 'bioReplicates'
                     }
+                    bioReplicates.put(bioReplicate, replicates);
                 }
 
                 converter.store(conditionItem);

@@ -40,6 +40,8 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
 
     // mapping: Ensembl ID -> gene (InterMine Item)
     private Map<String, Item> geneItems = new HashMap<String, Item>();
+    // mapping: NCBI (primary) ID -> Ensembl (secondary) ID
+    private Map<String, String> geneIDs = new HashMap<String, String>();
 
     protected IdResolver rslv;
     private static final Logger LOG = Logger.getLogger(StormRnaseqDataConverter.class);
@@ -109,39 +111,39 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
     }
 
     private Map<String, Integer> getColumnIndexes(String[] header) {
-        // example formats (experiments: "Lexogen_Dec19", "Lexogen_May20"):
+        // example formats:
         // ensembl	entrez	symbol	baseMean	log2FoldChange	lfcSE	stat	pvalue	padj
         // Ensembl	Entrez	Gene	Description	baseMean	log2FoldChange	lfcSE	stat	pvalue	padj
-        Map<String, Integer> indexes = new HashMap<String, Integer>();
-        // two possible formats (legacy and current) for initial columns:
-        List<String> columns;
-        if (header.length == 9) { // legacy format
-            columns = List.of("ensembl", "entrez", "symbol");
+        // Gene	Ensembl	Entrez	Description	baseMean	log2FoldChange	lfcSE	stat	pvalue	padj
+        ArrayList<String> headerLower = new ArrayList<String>(header.length);
+        for (String entry : header) {
+            headerLower.add(entry.toLowerCase());
         }
-        else if (header.length == 10) { // current format
-            columns = List.of("Ensembl", "Entrez", "Gene", "Description");
+        Map<String, Integer> indexes = new HashMap<String, Integer>();
+        // special case - "symbol" or "Gene" for gene symbol:
+        int symbolIndex = -1;
+        if (header.length == 9) {
+            symbolIndex = headerLower.indexOf("symbol");
+        }
+        else if (header.length == 10) {
+            symbolIndex = headerLower.indexOf("gene");
         }
         else {
             throw new RuntimeException("Unexpected number of columns in DESeq2 file");
         }
-        // check that column names match expectations:
-        for (int i = 0; i < columns.size(); i++) {
-            if (!header[i].equals(columns.get(i))) {
-                throw new RuntimeException("Unexpected column name in DESeq2 file: '" +
-                                           header[i] + "' vs. '" + columns.get(i) + "'");
-            }
+        if (symbolIndex == -1) {
+            throw new RuntimeException("Column 'Gene'/'symbol' not found in DESeq2 file");
         }
-        // check remaining columns (same for both formats):
-        String[] moreColumns = {"baseMean", "log2FoldChange", "lfcSE", "stat", "pvalue", "padj"};
-        for (int i = columns.size(); i < header.length; i++) {
-            int j = i - columns.size();
-            if (!header[i].equals(moreColumns[j])) {
-                throw new RuntimeException("Unexpected column name in DESeq2 file: '" +
-                                           header[i] + "' vs. '" + moreColumns[j] + "'");
+        indexes.put("symbol", symbolIndex);
+        // check remaining columns (ignore optional "Description"):
+        String[] columns = {"ensembl", "entrez", "baseMean", "log2FoldChange", "lfcSE", "stat", "pvalue", "padj"};
+        for (String column : columns) {
+            int index = headerLower.indexOf(column.toLowerCase());
+            if (index == -1) {
+                throw new RuntimeException("Column '" + column + "' not found in DESeq2 file");
             }
-            indexes.put(header[i], i);
+            indexes.put(column, index);
         }
-
         return indexes;
     }
 
@@ -152,11 +154,26 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
 
         Iterator<String[]> lineIter = FormattedTextParser.parseTabDelimitedReader(new FileReader(fileAbsPath));
         String[] header = lineIter.next();
+
+        // what information is in which column?
         Map<String, Integer> columnIndexes = getColumnIndexes(header);
+        int symbolIndex = columnIndexes.get("symbol");
+        int ensemblIndex = columnIndexes.get("ensembl");
+        int entrezIndex = columnIndexes.get("entrez");
+        String[] valueColumns = {"baseMean", "log2FoldChange", "lfcSE", "stat", "pvalue", "padj"};
+        ArrayList<Integer> valueIndexes = new ArrayList<Integer>(valueColumns.length);
+        for (String column : valueColumns) {
+            valueIndexes.add(columnIndexes.get(column));
+        }
 
         while (lineIter.hasNext()) {
             String[] line = lineIter.next();
-            Item gene = getGene(line[0], line[1], line[2]);
+            if (line.length != header.length) {
+                LOG.error("Unexpected number of items per line: " + line.length + " vs. " + header.length);
+                continue;
+            }
+
+            Item gene = getGene(line[ensemblIndex], line[entrezIndex], line[symbolIndex]);
             if (gene == null) // could not find matching gene
                 continue;
 
@@ -167,9 +184,9 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
             integratedItem.setReference("control", meta.conditions.get(controlName));
             integratedItem.setReference("treatment", meta.conditions.get(treatmentName));
 
-            for (Map.Entry<String, Integer> entry : columnIndexes.entrySet()) {
-                String key = entry.getKey();
-                int index = entry.getValue();
+            for (int i = 0; i < valueColumns.length; i++) {
+                String key = valueColumns[i];
+                int index = valueIndexes.get(i);
                 String value = line[index];
                 if (!value.equals("NA")) {
                     integratedItem.setAttribute(key, value);
@@ -185,24 +202,89 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
         String fileAbsPath = geneCountsFile.getAbsolutePath();
         Iterator<String[]> lineIter = FormattedTextParser.parseTabDelimitedReader(new FileReader(fileAbsPath));
         String[] header = lineIter.next();
+        // two possible formats:
+        int geneColumns; // number of columns with gene information
+        if ((header[0].equals("Geneid") || header[0].equals("gene_id")) && header[1].equals("gene_name")) {
+            geneColumns = 2;
+        }
+        else if (header[0].equals("gene_id")) {
+            geneColumns = 1;
+        }
+        else {
+            throw new RuntimeException("Unexpected header in gene counts file");
+        }
 
-        ArrayList<Item> samples = new ArrayList<Item>();
-        for (int i = 2; i < header.length; i++) {
-            String sampleName = header[i];
-            Item sample = null;
-            if (meta.samples.containsKey(sampleName)) {
-                sample = meta.samples.get(sampleName);
+        // condition names may appear in altered form:
+        Map<String, String> conditionNames = new HashMap<String, String>();
+        for (String conditionName : meta.conditions.keySet()) {
+            conditionNames.put(conditionName.replaceAll("-", "."), conditionName);
+        }
+
+        // create a template Item for each data column:
+        Map<Integer, Item> columnItems = new HashMap<Integer, Item>();
+        Map<String, String> bioReplicates = null; // reverse mapping of 'meta.bioReplicates' (created if needed)
+        for (int i = geneColumns; i < header.length; i++) {
+            Item columnItem = createItem("StormRNASeqFeatureCount");
+            columnItem.setReference("experiment", experiment);
+            // column names can be based on samples (legacy) or conditions (current):
+            String name = header[i];
+            if (name.matches(".*_R\\d+")) {
+                // current format - biological replicates: "[condition]_R1", "[condition]_R2" etc.
+                int index = name.lastIndexOf('_');
+                String conditionName = name.substring(0, index);
+                String replicate = name.substring(index + 2);
+                // replace "altered" condition name with original one, if applicable:
+                conditionName = conditionNames.getOrDefault(conditionName, conditionName);
+                Item condition = meta.conditions.get(conditionName);
+                if (condition == null) {
+                    LOG.error("Could not find condition corresonding to column in gene counts file: " +
+                              conditionName);
+                    continue;
+                }
+                columnItem.setReference("condition", condition);
+                columnItem.setAttribute("replicate", replicate);
+                ArrayList<String> sampleNames = meta.bioReplicates.get(name);
+                if (sampleNames != null) {
+                    for (String sampleName : sampleNames) {
+                        columnItem.addToCollection("samples", meta.samples.get(sampleName));
+                    }
+                }
+                else {
+                    LOG.error("Could not find corresponding samples for column in gene counts file: " + name);
+                }
+                columnItems.put(i, columnItem);
             }
-            else if (sampleName.startsWith("X")) { // "X" may be added e.g. if sample name starts with a number
-                String suffix = sampleName.substring(1);
-                if (meta.samples.containsKey(suffix)) {
-                    sample = meta.samples.get(suffix);
+            else { // legacy format: sample names
+                Item sample = meta.samples.get(name);
+                if ((sample == null) && name.startsWith("X")) { // try look-up again without "X" prefix
+                    name = name.substring(1);
+                    sample = meta.samples.get(name);
+                }
+                if (sample != null) {
+                    if (bioReplicates == null) { // create mapping: sample -> biological replicate
+                        bioReplicates = new HashMap<String, String>();
+                        for (Map.Entry<String, ArrayList<String>> entry : meta.bioReplicates.entrySet()) {
+                            String bioRep = entry.getKey();
+                            int index = bioRep.lastIndexOf('_');
+                            String rep = bioRep.substring(index + 2);
+                            for (String sampleName : entry.getValue()) {
+                                bioReplicates.put(sampleName, rep);
+                            }
+                        }
+                    }
+                    columnItem.addToCollection("samples", sample);
+                    columnItem.setReference("condition", sample.getReference("condition").getRefId());
+                    columnItem.setAttribute("replicate", bioReplicates.get(name));
+                    columnItems.put(i, columnItem);
+                }
+                else {
+                    LOG.error("Could not find sample corresponding to column in gene counts file: " + name);
                 }
             }
-            samples.add(sample);
-            if (sample == null) {
-                LOG.error("Could not find sample corresponding to column in gene counts file: " + sampleName);
-            }
+        }
+        if (columnItems.isEmpty()) {
+            LOG.error("Could not map any conditions/samples in gene counts file - aborting");
+            return; // TODO: throw an exception instead?
         }
 
         while (lineIter.hasNext()) {
@@ -211,28 +293,30 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
                 LOG.error("Unexpected number of items per line: " + line.length + " vs. " + header.length);
                 continue;
             }
-
-            Item gene = getGene(line[0], null, line[1]); // no Entrez ID in this file
+            // find gene:
+            String symbol = null;
+            if (geneColumns == 2)
+                symbol = line[1];
+            Item gene = getGene(line[0], null, symbol); // no Entrez ID in this file
             if (gene == null) // could not find matching gene
                 continue;
 
-            try {
-                for (int i = 2; i < line.length; i++) { // store count for this gene and sample
-                    if (line[i].equals("0") || line[i].equals("0.0"))
-                        continue; // don't store zero counts
-                    Item integratedItem = createItem("StormRNASeqFeatureCounts");
-                    integratedItem.setReference("experiment", experiment);
-                    integratedItem.setReference("gene", gene);
-                    integratedItem.setReference("sample", samples.get(i - 2));
-                    // if (!geneEnsemblId.isEmpty()) {
-                    //     integratedItem.setAttribute("geneEnsemblId", geneEnsemblId);
-                    // }
-                    integratedItem.setAttribute("count", line[i]);
-                    store(integratedItem);
-                }
-            } catch (Exception e) {
-                LOG.info("Exception in processRNASeqGeneCount with gene: " + line[0] + " - " + e.getMessage());
-                continue;
+            for (Map.Entry<Integer, Item> entry : columnItems.entrySet()) {
+                String value = line[entry.getKey()];
+                if (value.equals("0") || value.equals("0.0"))
+                    continue; // don't store zero counts
+                // create new Items to get new identifiers (avoid "duplicate identifier" errors);
+                // alternative solution using 'newId()' to assign new id. gives strange SQL error...
+                Item dummy = createItem("StormRNASeqFeatureCount");
+                Item integratedItem = entry.getValue();
+                integratedItem.setReference("gene", gene);
+                // if (!geneEnsemblId.isEmpty()) {
+                //     integratedItem.setAttribute("geneEnsemblId", geneEnsemblId);
+                // }
+                integratedItem.setAttribute("count", value);
+                store(integratedItem);
+                integratedItem.setIdentifier(dummy.getIdentifier());
+                // integratedItem.setIdentifier(newId("StormRNASeqFeatureCount")); // update id. for next round
             }
         }
     }
@@ -257,13 +341,19 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
     }
 
 
+    /**
+     * Look up a gene by its Ensembl ID (using Entrez ID and/or gene symbol to resolve ambiguities)
+     *
+     * Return the Item for the gene, or 'null' if not found.
+     * Create a new entry (possibly 'null') in 'geneItems' the first time an Ensembl ID is looked up.
+     */
     private Item getGene(String ensemblId, String entrezId, String symbol) throws ObjectStoreException {
         ensemblId = ensemblId.split("\\.")[0]; // remove version number (if any)
         // have we looked up this ID before?
         if (geneItems.containsKey(ensemblId)) {
             return geneItems.get(ensemblId);
         }
-        // look up ID, create new map entry:
+        // look up primary ID, create new map entry:
         Set<String> resolved = rslv.resolveId(TAXON_ID, "gene", ensemblId);
         boolean multipleMatches = resolved.size() > 1;
         if (multipleMatches) { // use additional information to choose the gene
@@ -280,9 +370,20 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
         }
         Item gene = null;
         if (resolved.size() == 1) { // success
-            gene = createItem("Gene");
-            gene.setAttribute("primaryIdentifier", resolved.iterator().next());
-            store(gene);
+            String primaryId = resolved.iterator().next();
+            // problem: multiple Ensembl genes can match to the same Entrez/NCBI ID,
+            // causing errors ("duplicate objects") during integration;
+            // make sure not to store gene Items with the same ID twice:
+            String existing = geneIDs.putIfAbsent(primaryId, ensemblId);
+            if (existing == null) { // no gene resolved to this primary ID yet
+                gene = createItem("Gene");
+                gene.setAttribute("primaryIdentifier", primaryId);
+                store(gene);
+            }
+            else { // conflict
+                LOG.error("Multiple matches to gene primary ID " + primaryId +
+                          ": " + existing + " (kept), " + ensemblId + " (skipped)");
+            }
         }
         else if (multipleMatches) {
             LOG.error("Failed to resolve multiple gene matches for Ensembl ID " + ensemblId);

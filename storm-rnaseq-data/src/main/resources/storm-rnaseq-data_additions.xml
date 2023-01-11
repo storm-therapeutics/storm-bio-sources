@@ -23,7 +23,9 @@
 
     <class name="StormRNASeqFeatureCount" is-interface="true">
         <reference name="experiment" referenced-type="StormRNASeqExperiment" reverse-reference="featureCounts"/>
-        <reference name="sample" referenced-type="StormOmicsSample"/>
+        <reference name="condition" referenced-type="StormOmicsCondition"/>
+        <attribute name="replicate" type="java.lang.Integer"/>
+        <collection name="samples" referenced-type="StormOmicsSample"/>
         <reference name="gene" referenced-type="Gene" reverse-reference="stormRNASeqFeatureCounts"/>
         <attribute name="count" type="java.lang.Double"/>
     </class>
@@ -55,8 +57,9 @@
         <reference name="experiment" referenced-type="StormOmicsExperiment" reverse-reference="materials"/>
         <attribute name="materialType" type="java.lang.String"/>
         <attribute name="name" type="java.lang.String"/>
-        <attribute name="primaryDisease" type="java.lang.String"/>
-        <attribute name="diseaseSubtype" type="java.lang.String"/>
+        <attribute name="cellLineName" type="java.lang.String"/>
+        <attribute name="tumourPrimaryDisease" type="java.lang.String"/>
+        <attribute name="tumourDiseaseSubtype" type="java.lang.String"/>
         <attribute name="tissue" type="java.lang.String"/>
         <collection name="conditions" referenced-type="StormOmicsCondition" reverse-reference="material"/>
     </class>
