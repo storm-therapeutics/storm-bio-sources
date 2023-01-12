@@ -36,21 +36,13 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
     private static final String DATASET_TITLE = "STORM RNA-Seq Data";
     private static final String DATA_SOURCE_NAME = "STORM Therapeutics";
 
-    private static final String TAXON_ID = "9606"; // Human Taxon ID
-
-    // mapping: Ensembl ID -> gene (InterMine Item)
-    private Map<String, Item> geneItems = new HashMap<String, Item>();
-    // mapping: NCBI (primary) ID -> Ensembl (secondary) ID
-    private Map<String, String> geneIDs = new HashMap<String, String>();
-
-    protected IdResolver rslv;
     private static final Logger LOG = Logger.getLogger(StormRnaseqDataConverter.class);
+
+    protected GeneLookup geneLookup;
 
     public StormRnaseqDataConverter(ItemWriter writer, Model model) {
         super(writer, model, DATA_SOURCE_NAME, DATASET_TITLE);
-        if (rslv == null) {
-            rslv = IdResolverService.getIdResolverByOrganism(TAXON_ID);
-        }
+        geneLookup = new GeneLookup(this);
     }
 
     public void process(File dataDir) throws Exception {
@@ -173,7 +165,7 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
                 continue;
             }
 
-            Item gene = getGene(line[ensemblIndex], line[entrezIndex], line[symbolIndex]);
+            Item gene = geneLookup.getGene(line[entrezIndex], line[ensemblIndex], line[symbolIndex]);
             if (gene == null) // could not find matching gene
                 continue;
 
@@ -294,10 +286,17 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
                 continue;
             }
             // find gene:
+            String ensemblId = null;
             String symbol = null;
-            if (geneColumns == 2)
+            if (geneColumns == 1) {
+                ensemblId = line[0];
+            }
+            else { // geneColumns == 2
                 symbol = line[1];
-            Item gene = getGene(line[0], null, symbol); // no Entrez ID in this file
+                if (!line[0].equals(symbol)) // symbol in both columns?
+                    ensemblId = line[0];
+            }
+            Item gene = geneLookup.getGene(null, ensemblId, symbol); // no Entrez ID in this file
             if (gene == null) // could not find matching gene
                 continue;
 
@@ -338,60 +337,5 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
             files.put(file.getName(), file);
         }
         return files;
-    }
-
-
-    /**
-     * Look up a gene by its Ensembl ID (using Entrez ID and/or gene symbol to resolve ambiguities)
-     *
-     * Return the Item for the gene, or 'null' if not found.
-     * Create a new entry (possibly 'null') in 'geneItems' the first time an Ensembl ID is looked up.
-     */
-    private Item getGene(String ensemblId, String entrezId, String symbol) throws ObjectStoreException {
-        ensemblId = ensemblId.split("\\.")[0]; // remove version number (if any)
-        // have we looked up this ID before?
-        if (geneItems.containsKey(ensemblId)) {
-            return geneItems.get(ensemblId);
-        }
-        // look up primary ID, create new map entry:
-        Set<String> resolved = rslv.resolveId(TAXON_ID, "gene", ensemblId);
-        boolean multipleMatches = resolved.size() > 1;
-        if (multipleMatches) { // use additional information to choose the gene
-            if ((entrezId != null) && !entrezId.isEmpty() && !entrezId.equals("NA")) { // try to use Entrez ID
-                if (resolved.contains(entrezId)) {
-                    resolved = Collections.singleton(entrezId);
-                }
-            }
-            else if ((symbol != null) && !symbol.isEmpty() && !symbol.equals("NA")) { // try to use gene symbol
-                symbol = symbol.split("\\.")[0]; // remove version number (if any)
-                Set<String> resolvedBySymbol = rslv.resolveId(TAXON_ID, "gene", symbol);
-                resolved.retainAll(resolvedBySymbol);
-            }
-        }
-        Item gene = null;
-        if (resolved.size() == 1) { // success
-            String primaryId = resolved.iterator().next();
-            // problem: multiple Ensembl genes can match to the same Entrez/NCBI ID,
-            // causing errors ("duplicate objects") during integration;
-            // make sure not to store gene Items with the same ID twice:
-            String existing = geneIDs.putIfAbsent(primaryId, ensemblId);
-            if (existing == null) { // no gene resolved to this primary ID yet
-                gene = createItem("Gene");
-                gene.setAttribute("primaryIdentifier", primaryId);
-                store(gene);
-            }
-            else { // conflict
-                LOG.error("Multiple matches to gene primary ID " + primaryId +
-                          ": " + existing + " (kept), " + ensemblId + " (skipped)");
-            }
-        }
-        else if (multipleMatches) {
-            LOG.error("Failed to resolve multiple gene matches for Ensembl ID " + ensemblId);
-        }
-        else {
-            LOG.error("No gene found for Ensembl ID " + ensemblId);
-        }
-        geneItems.put(ensemblId, gene);
-        return gene;
     }
 }
