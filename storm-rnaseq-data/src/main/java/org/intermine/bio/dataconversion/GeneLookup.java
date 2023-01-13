@@ -28,21 +28,18 @@ public class GeneLookup
     private static final String HUMAN_TAXON_ID = "9606";
     private static final String MOUSE_TAXON_ID = "10090";
 
-    // mapping: NCBI/Entrez (primary) ID -> gene (InterMine Item)
-    private Map<String, Item> geneItems = new HashMap<String, Item>();
-    // mapping: Ensembl ID/gene symbol combination -> gene (Item, also in 'geneItems') or null
-    private Map<String, Item> resolutions = new HashMap<String, Item>();
+    // mapping: Ensembl ID/gene symbol combination -> NCBI ID or 'null'
+    private Map<String, String> resolutions = new HashMap<String, String>();
 
     protected IdResolver resolver;
     protected String taxon_id;
-    private DataConverter converter; // needed to create and store Items
     private static final Logger LOG = Logger.getLogger(GeneLookup.class);
 
-    public GeneLookup(DataConverter converter) {
-        this("human", converter);
+    public GeneLookup() {
+        this("human");
     }
 
-    public GeneLookup(String species, DataConverter converter) {
+    public GeneLookup(String species) {
         if (species.equals("human")) {
             taxon_id = HUMAN_TAXON_ID;
         }
@@ -53,11 +50,9 @@ public class GeneLookup
             throw new IllegalArgumentException("Species not supported: " + species);
         }
         resolver = IdResolverService.getIdResolverByOrganism(taxon_id);
-        this.converter = converter;
     }
 
     public void clear() {
-        geneItems.clear();
         resolutions.clear();
     }
 
@@ -65,27 +60,16 @@ public class GeneLookup
         return (s != null) && !s.isEmpty() && !s.equals("NA");
     }
 
-    public Item getGene(String ncbiId) throws ObjectStoreException {
-        Item gene = geneItems.get(ncbiId);
-        if (gene == null) {
-            gene = converter.createItem("Gene");
-            gene.setAttribute("primaryIdentifier", ncbiId);
-            converter.store(gene);
-            geneItems.put(ncbiId, gene);
-        }
-        return gene;
-    }
-
     /**
      * Look up a gene by identifier and/or symbol
      *
-     * Return the Item for the gene, or 'null' if not found.
+     * Return the NCBI (primary) ID for the gene, or 'null' if not found.
      * Create new entries in the lookup tables the first time each piece of information is looked up.
      */
-    public Item getGene(String ncbiId, String ensemblId, String symbol) throws ObjectStoreException {
+    public String getGene(String ncbiId, String ensemblId, String symbol) throws ObjectStoreException {
         // NCBI ID given? - if yes, use it directly as primary identifier for the gene:
         if (isValid(ncbiId)) {
-            return getGene(ncbiId);
+            return ncbiId;
         }
 
         // no NCBI (primary) ID given? - look it up based on Ensembl ID and/or symbol:
@@ -128,9 +112,8 @@ public class GeneLookup
 
         if (ids.size() == 1) { // success!
             String primaryId = ids.iterator().next();
-            Item gene = getGene(primaryId);
-            resolutions.put(combined, gene); // save for next time
-            return gene;
+            resolutions.put(combined, primaryId); // save for next time
+            return primaryId;
         }
         if (ids.isEmpty()) {
             if (possibleConflict)

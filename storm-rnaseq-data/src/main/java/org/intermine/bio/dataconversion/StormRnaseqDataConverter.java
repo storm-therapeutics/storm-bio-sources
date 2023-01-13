@@ -42,7 +42,7 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
 
     public StormRnaseqDataConverter(ItemWriter writer, Model model) {
         super(writer, model, DATA_SOURCE_NAME, DATASET_TITLE);
-        geneLookup = new GeneLookup(this);
+        geneLookup = new GeneLookup();
     }
 
     public void process(File dataDir) throws Exception {
@@ -165,13 +165,13 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
                 continue;
             }
 
-            Item gene = geneLookup.getGene(line[entrezIndex], line[ensemblIndex], line[symbolIndex]);
-            if (gene == null) // could not find matching gene
+            String geneId = geneLookup.getGene(line[entrezIndex], line[ensemblIndex], line[symbolIndex]);
+            if (geneId == null) // could not find matching gene
                 continue;
 
             Item integratedItem = createItem("StormRNASeqComparison");
             // integratedItem.setAttribute("geneEnsemblId", ensemblId);
-            integratedItem.setReference("gene", gene);
+            integratedItem.setReference("gene", geneId);
             integratedItem.setReference("experiment", experiment);
             integratedItem.setReference("control", meta.conditions.get(controlName));
             integratedItem.setReference("treatment", meta.conditions.get(treatmentName));
@@ -296,8 +296,8 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
                 if (!line[0].equals(symbol)) // symbol in both columns?
                     ensemblId = line[0];
             }
-            Item gene = geneLookup.getGene(null, ensemblId, symbol); // no Entrez ID in this file
-            if (gene == null) // could not find matching gene
+            String geneId = geneLookup.getGene(null, ensemblId, symbol); // no Entrez ID in this file
+            if (geneId == null) // could not find matching gene
                 continue;
 
             for (Map.Entry<Integer, Item> entry : columnItems.entrySet()) {
@@ -308,7 +308,7 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
                 // alternative solution using 'newId()' to assign new id. gives strange SQL error...
                 Item dummy = createItem("StormRNASeqFeatureCount");
                 Item integratedItem = entry.getValue();
-                integratedItem.setReference("gene", gene);
+                integratedItem.setReference("gene", geneId);
                 // if (!geneEnsemblId.isEmpty()) {
                 //     integratedItem.setAttribute("geneEnsemblId", geneEnsemblId);
                 // }
