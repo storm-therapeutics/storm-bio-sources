@@ -30,11 +30,8 @@ public class GeneLookup
 
     // mapping: NCBI/Entrez (primary) ID -> gene (InterMine Item)
     private Map<String, Item> geneItems = new HashMap<String, Item>();
-    // store results of IDResolver queries:
-    // mapping: Ensembl (secondary) ID -> NCBI/Entrez (primary) IDs, or 'null'
-    private Map<String, Set<String>> geneIds = new HashMap<String, Set<String>>();
-    // mapping: gene symbol -> NCBI/Entrez IDs, or 'null'
-    private Map<String, Set<String>> geneSymbols = new HashMap<String, Set<String>>();
+    // mapping: Ensembl ID/gene symbol combination -> gene (Item, also in 'geneItems') or null
+    private Map<String, Item> resolutions = new HashMap<String, Item>();
 
     protected IdResolver resolver;
     protected String taxon_id;
@@ -61,8 +58,7 @@ public class GeneLookup
 
     public void clear() {
         geneItems.clear();
-        geneIds.clear();
-        geneSymbols.clear();
+        resolutions.clear();
     }
 
     public static boolean isValid(String s) {
@@ -93,26 +89,31 @@ public class GeneLookup
         }
 
         // no NCBI (primary) ID given? - look it up based on Ensembl ID and/or symbol:
+        boolean ensemblValid = isValid(ensemblId);
+        boolean symbolValid = isValid(symbol);
+        String combined = "";
+        if (ensemblValid) {
+            ensemblId = ensemblId.split("\\.")[0]; // remove version number (if any)
+            combined += ensemblId;
+        }
+        combined += "/";
+        if (symbolValid) {
+            symbol = symbol.split("\\.")[0]; // remove version number (if any)
+            combined += symbol;
+        }
+        if (resolutions.containsKey(combined)) // resolved this combination of ID/symbol before?
+            return resolutions.get(combined);
+
         List<String> given = new ArrayList<String>(); // what information was given (for error messages)
         Set<String> idsFromEnsembl = Collections.emptySet();
         Set<String> idsFromSymbol = Collections.emptySet();
-        if (isValid(ensemblId)) {
-            ensemblId = ensemblId.split("\\.")[0]; // remove version number (if any)
+        if (ensemblValid) {
             given.add("Ensembl ID '" + ensemblId + "'");
-            idsFromEnsembl = geneIds.get(ensemblId);
-            if (idsFromEnsembl == null) { // not looked up previously - do it now
-                idsFromEnsembl = resolver.resolveId(taxon_id, "gene", ensemblId);
-                geneIds.put(ensemblId, idsFromEnsembl);
-            }
+            idsFromEnsembl = resolver.resolveId(taxon_id, "gene", ensemblId);
         }
-        if (isValid(symbol)) {
-            symbol = symbol.split("\\.")[0]; // remove version number (if any)
+        if (symbolValid) {
             given.add("gene symbol '" + symbol + "'");
-            idsFromSymbol = geneSymbols.get(symbol);
-            if (idsFromSymbol == null) { // not looked up previously - do it now
-                idsFromSymbol = resolver.resolveId(taxon_id, "gene", symbol);
-                geneIds.put(symbol, idsFromSymbol);
-            }
+            idsFromSymbol = resolver.resolveId(taxon_id, "gene", symbol);
         }
 
         boolean possibleConflict = false; // conflicting results from Ensembl ID and symbol?
@@ -127,7 +128,9 @@ public class GeneLookup
 
         if (ids.size() == 1) { // success!
             String primaryId = ids.iterator().next();
-            return getGene(primaryId);
+            Item gene = getGene(primaryId);
+            resolutions.put(combined, gene); // save for next time
+            return gene;
         }
         if (ids.isEmpty()) {
             if (possibleConflict)
@@ -139,6 +142,7 @@ public class GeneLookup
             LOG.warn("Multiple gene matches for " + String.join(" and ", given));
         }
 
+        resolutions.put(combined, null);
         return null;
     }
 }
