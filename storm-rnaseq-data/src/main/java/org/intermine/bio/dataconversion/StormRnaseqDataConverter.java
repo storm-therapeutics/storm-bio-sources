@@ -38,11 +38,11 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
 
     private static final Logger LOG = Logger.getLogger(StormRnaseqDataConverter.class);
 
-    protected GeneLookup geneLookup;
+    // helpers for looking up genes in different species:
+    protected Map<String, GeneLookup> geneLookups = new HashMap<String, GeneLookup>();
 
     public StormRnaseqDataConverter(ItemWriter writer, Model model) {
         super(writer, model, DATA_SOURCE_NAME, DATASET_TITLE);
-        geneLookup = new GeneLookup(this);
     }
 
     public void process(File dataDir) throws Exception {
@@ -60,6 +60,10 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
             // read experiment metadata:
             StormOmicsMetadata meta = new StormOmicsMetadata(this);
             meta.processJSONFile(jsonFile);
+
+            if (!geneLookups.containsKey(meta.species)) { // does helper class exist already?
+                geneLookups.put(meta.species, new GeneLookup(meta.species, this));
+            }
 
             LOG.info("Processing RNA-seq data for experiment: " + meta.experimentShortName);
             Item experiment = createItem("StormRNASeqExperiment");
@@ -157,6 +161,9 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
         for (String column : valueColumns) {
             valueIndexes.add(columnIndexes.get(column));
         }
+
+        // species-specific helper for looking up genes:
+        GeneLookup geneLookup = geneLookups.get(meta.species);
 
         while (lineIter.hasNext()) {
             String[] line = lineIter.next();
@@ -278,6 +285,9 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
             LOG.error("Could not map any conditions/samples in gene counts file - aborting");
             return; // TODO: throw an exception instead?
         }
+
+        // species-specific helper for looking up genes:
+        GeneLookup geneLookup = geneLookups.get(meta.species);
 
         while (lineIter.hasNext()) {
             String[] line = lineIter.next();

@@ -53,6 +53,7 @@ public class StormOmicsMetadata
     // TODO: make variables private and add getters
     public String experimentShortName;
     public Item experiment;
+    public String species;
     public Map<String, Item> materials = new HashMap<>();
     public Map<String, Item> treatments = new HashMap<>();
     public Map<String, Item> conditions = new HashMap<>();
@@ -133,8 +134,11 @@ public class StormOmicsMetadata
             experimentShortName = experimentJson.getString("short name");
             LOG.debug("StormOmicsMetadata [processJSONFile] - processing experiment: " + experimentShortName);
             experiment = converter.createItem("StormOmicsExperiment");
-            List<String> expectedEntries = List.of("short name", "name", "project", "contact person", "date",
-                                                   "provider", "sequencing", "Dotmatics reference", "species");
+            experiment.setAttribute("shortName", experimentShortName);
+            species = experimentJson.optString("species", "human").toLowerCase();
+            experiment.setAttribute("species", species);
+            List<String> expectedEntries = List.of("name", "project", "contact person", "date",
+                                                   "provider", "sequencing", "Dotmatics reference");
             extractAttributesFromJSON(experimentJson, expectedEntries, experiment);
             converter.store(experiment);
 
