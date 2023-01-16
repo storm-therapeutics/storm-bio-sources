@@ -91,6 +91,9 @@ public class GeneLookup
         // no NCBI (primary) ID given? - look it up based on Ensembl ID and/or symbol:
         boolean ensemblValid = isValid(ensemblId);
         boolean symbolValid = isValid(symbol);
+        if (!ensemblValid && !symbolValid)
+            return null; // can't even write an informative error message in this case...
+
         String combined = "";
         if (ensemblValid) {
             ensemblId = ensemblId.split("\\.")[0]; // remove version number (if any)

@@ -145,7 +145,7 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
 
 
     private void processRNASeqComparison(File DESeq2File, Item experiment, StormOmicsMetadata meta, String treatmentName, String controlName) throws ObjectStoreException, IOException {
-        String fileName = DESeq2File.getName();
+        LOG.info("Processing differential gene expression data from file: " + DESeq2File.getName());
         String fileAbsPath = DESeq2File.getAbsolutePath();
 
         Iterator<String[]> lineIter = FormattedTextParser.parseTabDelimitedReader(new FileReader(fileAbsPath));
