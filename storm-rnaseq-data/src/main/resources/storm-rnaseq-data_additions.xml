@@ -3,7 +3,7 @@
 
 <classes>
     <class name="StormRNASeqExperiment" is-interface="true">
-        <reference name="metadata" referenced-type="StormOmicsExperiment"/>
+        <reference name="metadata" referenced-type="StormOmicsExperiment" reverse-reference="rnaSeqExperiment"/>
         <collection name="comparisons" referenced-type="StormRNASeqComparison" reverse-reference="experiment"/>
         <collection name="featureCounts" referenced-type="StormRNASeqFeatureCount" reverse-reference="experiment"/>
     </class>
@@ -51,6 +51,7 @@
         <collection name="treatments" referenced-type="StormOmicsTreatment" reverse-reference="experiment"/>
         <collection name="conditions" referenced-type="StormOmicsCondition" reverse-reference="experiment"/>
         <collection name="samples" referenced-type="StormOmicsSample" reverse-reference="experiment"/>
+        <reference name="rnaSeqExperiment" referenced-type="StormRNASeqExperiment" reverse-reference="metadata"/>
     </class>
 
     <class name="StormOmicsMaterial" is-interface="true">
