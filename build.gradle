@@ -58,6 +58,10 @@ subprojects {
         bioModel group: 'org.intermine', name: 'bio-model', version: bioVersion, transitive: false
     }
 
+    if (it.name == 'bio-source-storm-proteomics') {
+        dependencies {compile project(':bio-source-storm-rnaseq-data')}
+    }
+
     dbModelConfig {
         objectStoreName = "os.bio-test"
         modelName = "genomic"
@@ -152,6 +156,7 @@ subprojects {
 
         configurations = ['archives']
     }
+
 }
 
 task testReport(type: TestReport) {

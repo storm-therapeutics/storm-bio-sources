@@ -39,11 +39,11 @@ public class StormProteomicsConverter extends BioDirectoryConverter
     // expected input file names:
     private static final String MZTAB_NAME = "out.mzTab";
     private static final String MSSTATS_NAME = "msstats_comparisons.csv"; // actually tab-separated
-    private static final String DESIGN_NAME = "experimental_design.tsv";
 
     private static final Logger LOG = Logger.getLogger(StormProteomicsConverter.class);
 
     Item experiment;
+    StormOmicsMetadata metadata;
     Map<String, Item> samples = new HashMap<String, Item>();
     Map<String, Item> conditions = new HashMap<String, Item>();
     Map<String, Item> proteinGroups = new HashMap<String, Item>();
@@ -66,26 +66,24 @@ public class StormProteomicsConverter extends BioDirectoryConverter
             if (subDir.isDirectory()) {
                 File mztabFile = new File(subDir, MZTAB_NAME);
                 if (!mztabFile.exists()) {
-                    LOG.info("No results (mzTab) file found in directory '" +
-                             subDir.getName() + "' - skipping");
+                    LOG.info("No results (mzTab) file found in directory '" + subDir.getName() + "' - skipping");
                     continue;
                 }
-                File designFile = new File(subDir, DESIGN_NAME);
-                if (!designFile.exists()) {
-                    LOG.info("No experimental design file found in directory '" +
-                             subDir.getName() + "' - skipping");
+                // read full metadata from JSON file, or sample/condition information from TSV:
+                File jsonFile = new File(subDir, subDir.getName() + ".json");
+                if (!jsonFile.exists()) {
+                    LOG.info("No metadata (JSON) file found in directory '" + subDir.getName() + "' - skipping");
                     continue;
                 }
                 LOG.info("Processing proteomics results in directory '" + subDir.getName() + "'");
                 samples.clear();
                 conditions.clear();
                 proteinGroups.clear();
+                LOG.info("Processing metadata (JSON) file");
+                metadata = new StormOmicsMetadata(this);
+                metadata.processJSONFile(jsonFile);
                 experiment = createItem("StormProteomicsExperiment");
-                experiment.setAttribute("shortName", subDir.getName());
-                store(experiment);
-                // link between samples and conditions:
-                LOG.info("Processing experimental design file");
-                processExperimentalDesign(designFile);
+                experiment.setReference("metadata", metadata.experiment);
                 // raw protein abundances:
                 LOG.info("Processing mzTab file");
                 processMzTab(mztabFile);
@@ -95,6 +93,7 @@ public class StormProteomicsConverter extends BioDirectoryConverter
                     LOG.info("Processing MSstats file");
                     processMSstats(msstatsFile);
                 }
+                store(experiment);
             }
         }
     }
@@ -141,7 +140,7 @@ public class StormProteomicsConverter extends BioDirectoryConverter
         FileReader reader = new FileReader(file);
         Iterator<String[]> lineIter = FormattedTextParser.parseTabDelimitedReader(reader);
         int nCol = 0;
-        ArrayList<String> sampleNames = new ArrayList<String>();
+        ArrayList<Item> samples = new ArrayList<Item>();
         Map<String, Integer> proteinHeader = new HashMap<String, Integer>();
         // parse metadata section and protein section header:
         while (lineIter.hasNext()) {
@@ -149,17 +148,17 @@ public class StormProteomicsConverter extends BioDirectoryConverter
             if ((line.length == 0) || (line[0].equals("COM"))) // skip empty lines and comments
                 continue;
             if (line[0].equals("MTD")) { // metadata section
-                if (line[1].equals("ms_run[" + (sampleNames.size() + 1) + "]-location")) {
+                if (line[1].equals("ms_run[" + (samples.size() + 1) + "]-location")) {
                     // remove file extension to get sample name:
                     String sampleName = line[2].substring(0, line[2].lastIndexOf('.'));
                     if (sampleName.startsWith("file://")) {
                         sampleName = sampleName.substring(7);
                     }
-                    if (!samples.containsKey(sampleName)) {
-                        throw new RuntimeException("Sample name not found in experimental design: " +
-                                                   sampleName);
+                    Item sample = metadata.samples.get(sampleName);
+                    if (sample == null) {
+                        throw new RuntimeException("Sample name not found in metadata: " + sampleName);
                     }
-                    sampleNames.add(sampleName);
+                    samples.add(sample);
                 }
             }
             else if (line[0].equals("PRH")) { // protein section header
@@ -170,7 +169,7 @@ public class StormProteomicsConverter extends BioDirectoryConverter
                 break;
             }
         }
-        if (sampleNames.isEmpty()) {
+        if (samples.isEmpty()) {
             throw new RuntimeException("No sample information ('MTD ms_run[...]-location') found in mzTab file");
         }
         if (proteinHeader.isEmpty() || (nCol == 0)) {
@@ -180,8 +179,8 @@ public class StormProteomicsConverter extends BioDirectoryConverter
         int scoreIndex = proteinHeader.get("best_search_engine_score[1]");
         int membersIndex = proteinHeader.get("ambiguity_members");
         int resultTypeIndex = proteinHeader.getOrDefault("opt_global_result_type", -1);
-        int[] studyVariableIndexes = new int[sampleNames.size()];
-        for (int i = 0; i < sampleNames.size(); i++) {
+        int[] studyVariableIndexes = new int[samples.size()];
+        for (int i = 0; i < samples.size(); i++) {
             String colName = "protein_abundance_study_variable[" + (i + 1) + "]";
             studyVariableIndexes[i] = proteinHeader.get(colName);
         }
@@ -198,14 +197,13 @@ public class StormProteomicsConverter extends BioDirectoryConverter
                     continue; // no quantification - skip
                 }
                 Item group = makeProteinGroup(line[membersIndex], ",", line[scoreIndex]);
-                for (int i = 0; i < sampleNames.size(); i++) {
+                for (int i = 0; i < samples.size(); i++) {
                     String value = line[studyVariableIndexes[i]];
                     // treat "0" as missing value (see https://github.com/OpenMS/OpenMS/issues/6363):
                     if (!value.equals("null") && !value.equals("0.0")) {
                         Item abundance = createItem("ProteomicsLFQAbundance");
                         abundance.setAttribute("abundance", value);
-                        String sampleName = sampleNames.get(i);
-                        abundance.setReference("sample", samples.get(sampleName));
+                        abundance.setReference("sample", samples.get(i));
                         abundance.setReference("proteinGroup", group);
                         store(abundance);
                     }
@@ -236,23 +234,23 @@ public class StormProteomicsConverter extends BioDirectoryConverter
         }
         // trailing column names are condition names:
         for (int i = expectedHeader.length; i < header.length; i++) {
-            if (!conditions.containsKey(header[i])) {
-                throw new RuntimeException("Condition name not found in experimental design: " +
-                                           header[i]);
+            if (!metadata.conditions.containsKey(header[i])) {
+                throw new RuntimeException("Condition name not found in metadata: " + header[i]);
             }
         }
         // "Label" column contains conditions (treatment/control) separated by "-";
         // since "-" may also occur in condition names, splitting doesn't work;
         // -> generate all possible pairs and perform look-up:
-        Map<String, SimpleEntry<String, String>> conditionPairs = new HashMap<>();
-        for (String treatment : conditions.keySet()) {
-            for (String control : conditions.keySet()) {
-                if (!treatment.equals(control)) {
-                    SimpleEntry<String, String> pair = new SimpleEntry(treatment, control);
-                    conditionPairs.put(treatment + "-" + control, pair);
+        Map<String, SimpleEntry<Item, Item>> conditionPairs = new HashMap<>();
+        for (Map.Entry<String, Item> treatment : metadata.conditions.entrySet()) {
+            for (Map.Entry<String, Item> control : metadata.conditions.entrySet()) {
+                if (!treatment.getKey().equals(control.getKey())) {
+                    SimpleEntry<Item, Item> pair = new SimpleEntry(treatment.getValue(), control.getValue());
+                    conditionPairs.put(treatment.getKey() + "-" + control.getKey(), pair);
                 }
             }
         }
+
         while (lineIter.hasNext()) {
             String[] line = lineIter.next();
             if (line.length != header.length) {
@@ -272,14 +270,12 @@ public class StormProteomicsConverter extends BioDirectoryConverter
             }
             Item result = createItem("ProteomicsMSstatsResult");
             result.setReference("proteinGroup", group);
-            // TODO: what if condition names contain "-"?
-            // (generate all possible pairs and perform look-up?)
-            SimpleEntry<String, String> conditionPair = conditionPairs.get(line[1]);
+            SimpleEntry<Item, Item> conditionPair = conditionPairs.get(line[1]);
             if (conditionPair == null) {
                 throw new RuntimeException("Failed to resolve conditions in 'Label' column: " + line[1]);
             }
-            result.setReference("conditionTreatment", conditions.get(conditionPair.getKey()));
-            result.setReference("conditionControl", conditions.get(conditionPair.getValue()));
+            result.setReference("conditionTreatment", conditionPair.getKey());
+            result.setReference("conditionControl", conditionPair.getValue());
             result.setAttribute("log2FoldChange", line[2]);
             result.setAttribute("rawPValue", line[6]);
             result.setAttribute("adjPValue", line[7]); // Benjamini-Hochberg (FDR) adjusted
@@ -291,93 +287,6 @@ public class StormProteomicsConverter extends BioDirectoryConverter
             // result.setAttribute("tTestValue", line[4]); // Student T-test statistic
             // result.setAttribute("degreesFreedom", line[5]); // DF of the T-test
             store(result);
-        }
-    }
-
-
-    private void processExperimentalDesign(File file) throws Exception {
-        FileReader reader = new FileReader(file);
-        Iterator<String[]> lineIter = FormattedTextParser.parseTabDelimitedReader(reader);
-        // first table: general sample information (fractions, files, labels)
-        String[] expectedHeader = {"Fraction_Group", "Fraction", "Spectra_Filepath", "Label", "Sample"};
-        String[] header = lineIter.next();
-        if (!Arrays.equals(expectedHeader, header)) {
-            throw new RuntimeException("Unexpected header in experimental design file (first table)");
-        }
-        // map sample numbers to names (with which sample items can be looked up in "samples" map):
-        ArrayList<String> sampleNames = new ArrayList<String>();
-        boolean noFractions = true;
-        boolean noLabels = true;
-        while (lineIter.hasNext()) {
-            String[] line = lineIter.next();
-            if ((line.length == 0) || line[0].isEmpty())
-                break; // empty line
-            if (line.length != header.length) {
-                throw new RuntimeException("Unexpected number of items per line: [" +
-                                           String.join(", ", line) + "]");
-            }
-            Item sample = createItem("StormProteomicsSample");
-            sample.setReference("experiment", experiment);
-            sample.setAttribute("fractionGroup", line[0]);
-            sample.setAttribute("fraction", line[1]);
-            if (!line[1].equals("1"))
-                noFractions = false;
-            sample.setAttribute("filePath", line[2]);
-            String name = new File(line[2]).getName();
-            // remove file extension:
-            name = name.substring(0, name.lastIndexOf('.'));
-            sample.setAttribute("name", name);
-            sample.setAttribute("label", line[3]);
-            if (!line[3].equals("1"))
-                noLabels = false;
-            samples.put(name, sample);
-            sampleNames.add(name);
-            if (Integer.parseInt(line[4]) != samples.size()) {
-                throw new RuntimeException("Unexpected sample number: " + line[4]);
-            }
-        }
-        // second table: MSstats information (conditions, replicates)
-        expectedHeader = new String[] {"Sample", "MSstats_Condition", "MSstats_BioReplicate"};
-        header = lineIter.next();
-        // there may be additional empty columns because the first table has more columns:
-        if (header.length < expectedHeader.length) {
-            throw new RuntimeException("Short header in experimental design file (second table)");
-        }
-        for (int i = 0; i < expectedHeader.length; ++i) {
-            if (!expectedHeader[i].equals(header[i])) {
-                throw new RuntimeException("Unexpected header item in experimental design file (second table): " + header[i]);
-            }
-        }
-        while (lineIter.hasNext()) {
-            String[] line = lineIter.next();
-            if (line.length < expectedHeader.length) { // ignore any additional columns
-                throw new RuntimeException("Short line in experimental design file (second table): [" +
-                                           String.join(", ", line) + "]");
-            }
-            int index = Integer.parseInt(line[0]) - 1; // sample numbers start at 1
-            Item condition = conditions.get(line[1]);
-            if (condition == null) { // new condition
-                condition = createItem("StormProteomicsCondition");
-                condition.setAttribute("name", line[1]);
-                condition.setReference("experiment", experiment);
-                store(condition);
-                conditions.put(line[1], condition);
-            }
-            String sampleName = sampleNames.get(index);
-            Item sample = samples.get(sampleName);
-            sample.setReference("condition", condition);
-            sample.setAttribute("bioReplicate", line[2]);
-        }
-        for (Item sample : samples.values()) {
-            // if no fractionation/labeling was used in experiment, keep attributes NULL:
-            if (noFractions) {
-                sample.removeAttribute("fractionGroup");
-                sample.removeAttribute("fraction");
-            }
-            if (noLabels) {
-                sample.removeAttribute("label");
-            }
-            store(sample);
         }
     }
 }
