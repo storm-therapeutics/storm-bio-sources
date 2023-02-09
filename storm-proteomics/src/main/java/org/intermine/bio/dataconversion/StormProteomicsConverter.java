@@ -269,6 +269,7 @@ public class StormProteomicsConverter extends BioDirectoryConverter
                 throw new RuntimeException("Protein group not found: " + groupKey);
             }
             Item result = createItem("ProteomicsMSstatsResult");
+            result.setReference("experiment", experiment);
             result.setReference("proteinGroup", group);
             SimpleEntry<Item, Item> conditionPair = conditionPairs.get(line[1]);
             if (conditionPair == null) {

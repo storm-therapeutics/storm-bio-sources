@@ -5,7 +5,7 @@
   <class name="StormProteomicsExperiment" is-interface="true">
     <reference name="metadata" referenced-type="StormOmicsExperiment" reverse-reference="proteomicsExperiment"/>
     <collection name="proteinGroups" referenced-type="ProteomicsProteinGroup" reverse-reference="experiment"/>
-    <collection name="MSstatsResults" referenced-type="ProteomicsMSstatsResult" reverse-reference="experiment"/>
+    <collection name="msStatsResults" referenced-type="ProteomicsMSstatsResult" reverse-reference="experiment"/>
   </class>
 
   <class name="ProteomicsProteinGroup" is-interface="true">
@@ -29,7 +29,7 @@
     <attribute name="adjPValue" type="java.lang.Double"/>
     <attribute name="missingFraction" type="java.lang.Double"/>
     <attribute name="imputedFraction" type="java.lang.Double"/>
-    <reference name="experiment" referenced-type="StormProteomicsExperiment"/>
+    <reference name="experiment" referenced-type="StormProteomicsExperiment" reverse-reference="msStatsResults"/>
     <reference name="conditionTreatment" referenced-type="StormOmicsCondition"/>
     <reference name="conditionControl" referenced-type="StormOmicsCondition"/>
     <reference name="proteinGroup" referenced-type="ProteomicsProteinGroup"/>
