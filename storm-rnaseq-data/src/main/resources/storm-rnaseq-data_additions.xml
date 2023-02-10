@@ -2,7 +2,41 @@
 <!-- This file details any extensions needed to the data model to store data from this source, everything else is automatically generated from the model description so this is all we need to do to add to the model. -->
 
 <classes>
-    <class name="RNASeqExperimentMetadata" is-interface="true">
+    <class name="StormRNASeqExperiment" is-interface="true">
+        <reference name="metadata" referenced-type="StormOmicsExperiment" reverse-reference="rnaSeqExperiment"/>
+        <collection name="comparisons" referenced-type="StormRNASeqComparison" reverse-reference="experiment"/>
+        <collection name="featureCounts" referenced-type="StormRNASeqFeatureCount" reverse-reference="experiment"/>
+    </class>
+
+    <class name="StormRNASeqComparison" is-interface="true">
+        <reference name="experiment" referenced-type="StormRNASeqExperiment" reverse-reference="comparisons"/>
+        <reference name="treatment" referenced-type="StormOmicsCondition"/>
+        <reference name="control" referenced-type="StormOmicsCondition"/>
+        <reference name="gene" referenced-type="Gene" reverse-reference="stormRNASeqComparisons"/>
+        <attribute name="baseMean" type="java.lang.Double"/>
+        <attribute name="log2FoldChange" type="java.lang.Double"/>
+        <attribute name="lfcSE" type="java.lang.Double"/>
+        <attribute name="stat" type="java.lang.Double"/>
+        <attribute name="pvalue" type="java.lang.Double"/>
+        <attribute name="padj" type="java.lang.Double"/>
+    </class>
+
+    <class name="StormRNASeqFeatureCount" is-interface="true">
+        <reference name="experiment" referenced-type="StormRNASeqExperiment" reverse-reference="featureCounts"/>
+        <reference name="condition" referenced-type="StormOmicsCondition"/>
+        <attribute name="replicate" type="java.lang.Integer"/>
+        <collection name="samples" referenced-type="StormOmicsSample"/>
+        <reference name="gene" referenced-type="Gene" reverse-reference="stormRNASeqFeatureCounts"/>
+        <attribute name="count" type="java.lang.Double"/>
+    </class>
+
+    <class name="Gene" is-interface="true" extends="BioEntity">
+        <collection name="stormRNASeqFeatureCounts" referenced-type="StormRNASeqFeatureCount" reverse-reference="gene"/>
+        <collection name="stormRNASeqComparisons" referenced-type="StormRNASeqComparison" reverse-reference="gene"/>
+    </class>
+
+    <!-- TODO: keep metadata classes in a separate file? -->
+    <class name="StormOmicsExperiment" is-interface="true">
         <attribute name="name" type="java.lang.String"/>
         <attribute name="shortName" type="java.lang.String"/>
         <attribute name="project" type="java.lang.String"/>
@@ -11,62 +45,52 @@
         <attribute name="sequencing" type="java.lang.String"/>
         <attribute name="provider" type="java.lang.String"/>
         <attribute name="dotmaticsReference" type="java.lang.String"/>
-        <collection name="rNAseqComparisons" referenced-type="RNASeqExperimentComparison" reverse-reference="experiment"/>
-        <collection name="featureCounts" referenced-type="RNASeqExperimentFeatureCounts" reverse-reference="experiment"/>
-        <collection name="conditions" referenced-type="RNASeqExperimentCondition" reverse-reference="experiment"/>
-        <collection name="materials" referenced-type="RNASeqExperimentMaterial" reverse-reference="experiment"/>
-        <collection name="treatments" referenced-type="RNASeqExperimentTreatment" reverse-reference="experiment"/>
+        <attribute name="species" type="java.lang.String"/>
+        <!-- TODO: include all these direct references, or just 'conditions'? -->
+        <collection name="materials" referenced-type="StormOmicsMaterial" reverse-reference="experiment"/>
+        <collection name="treatments" referenced-type="StormOmicsTreatment" reverse-reference="experiment"/>
+        <collection name="conditions" referenced-type="StormOmicsCondition" reverse-reference="experiment"/>
+        <collection name="samples" referenced-type="StormOmicsSample" reverse-reference="experiment"/>
+        <reference name="rnaSeqExperiment" referenced-type="StormRNASeqExperiment" reverse-reference="metadata"/>
     </class>
-    <class name="RNASeqExperimentComparison" is-interface="true">
-        <reference name="experiment" referenced-type="RNASeqExperimentMetadata" reverse-reference="rNAseqComparisons"/>
-        <reference name="treatment" referenced-type="RNASeqExperimentCondition"/>
-        <reference name="control" referenced-type="RNASeqExperimentCondition"/>
-        <attribute name="geneEnsemblId" type="java.lang.String"/>
-        <reference name="gene" referenced-type="Gene" reverse-reference="rNAseqComparisons"/>
-        <attribute name="baseMean" type="java.lang.Double"/>
-        <attribute name="log2FoldChange" type="java.lang.Double"/>
-        <attribute name="lfcSE" type="java.lang.Double"/>
-        <attribute name="stat" type="java.lang.Double"/>
-        <attribute name="pvalue" type="java.lang.Double"/>
-        <attribute name="padj" type="java.lang.Double"/>
-    </class>
-    <class name="RNASeqExperimentCondition" is-interface="true">
-        <reference name="experiment" referenced-type="RNASeqExperimentMetadata" reverse-reference="conditions"/>
-        <attribute name="name" type="java.lang.String"/>
-        <reference name="material" referenced-type="RNASeqExperimentMaterial" reverse-reference="conditions"/>
-        <collection name="treatments" referenced-type="RNASeqExperimentTreatment" reverse-reference="conditions"/>
-        <attribute name="samples" type="java.lang.String"/>
-    </class>
-    <class name="RNASeqExperimentFeatureCounts" is-interface="true">
-        <reference name="experiment" referenced-type="RNASeqExperimentMetadata" reverse-reference="featureCounts"/>
-        <attribute name="geneEnsemblId" type="java.lang.String"/>
-        <reference name="gene" referenced-type="Gene" reverse-reference="featureCounts"/>
-        <attribute name="run" type="java.lang.String"/>
-        <attribute name="count" type="java.lang.Double"/>
-    </class>
-    <class name="RNASeqExperimentMaterial" is-interface="true">
-        <reference name="experiment" referenced-type="RNASeqExperimentMetadata" reverse-reference="materials"/>
+
+    <class name="StormOmicsMaterial" is-interface="true">
+        <reference name="experiment" referenced-type="StormOmicsExperiment" reverse-reference="materials"/>
         <attribute name="materialType" type="java.lang.String"/>
         <attribute name="name" type="java.lang.String"/>
-        <attribute name="primaryDisease" type="java.lang.String"/>
-        <attribute name="diseaseSubtype" type="java.lang.String"/>
+        <attribute name="cellLineName" type="java.lang.String"/>
+        <attribute name="tumourPrimaryDisease" type="java.lang.String"/>
+        <attribute name="tumourDiseaseSubtype" type="java.lang.String"/>
         <attribute name="tissue" type="java.lang.String"/>
-        <attribute name="species" type="java.lang.String"/>
-        <collection name="conditions" referenced-type="RNASeqExperimentCondition" reverse-reference="material"/>
+        <collection name="conditions" referenced-type="StormOmicsCondition" reverse-reference="material"/>
     </class>
-    <class name="RNASeqExperimentTreatment" is-interface="true">
-        <reference name="experiment" referenced-type="RNASeqExperimentMetadata" reverse-reference="treatments"/>
+
+    <class name="StormOmicsTreatment" is-interface="true">
+        <reference name="experiment" referenced-type="StormOmicsExperiment" reverse-reference="treatments"/>
         <attribute name="treatmentType" type="java.lang.String"/>
         <attribute name="name" type="java.lang.String"/>
         <attribute name="targetGene" type="java.lang.String"/>
         <attribute name="dotmaticsReference" type="java.lang.String"/>
-        <attribute name="type" type="java.lang.String"/>
-        <attribute name="dose_concentration" type="java.lang.Double"/>
+        <attribute name="perturbationType" type="java.lang.String"/>
+        <attribute name="dose_concentration" type="java.lang.String"/>
         <attribute name="timePoint" type="java.lang.String"/>
-        <collection name="conditions" referenced-type="RNASeqExperimentCondition" reverse-reference="treatments"/>
+        <collection name="conditions" referenced-type="StormOmicsCondition" reverse-reference="treatments"/>
     </class>
-    <class name="Gene" is-interface="true" extends="BioEntity">
-        <collection name="featureCounts" referenced-type="RNASeqExperimentFeatureCounts" reverse-reference="gene"/>
-        <collection name="rNAseqComparisons" referenced-type="RNASeqExperimentComparison" reverse-reference="gene"/>
+
+    <class name="StormOmicsCondition" is-interface="true">
+        <reference name="experiment" referenced-type="StormOmicsExperiment" reverse-reference="conditions"/>
+        <attribute name="name" type="java.lang.String"/>
+        <reference name="material" referenced-type="StormOmicsMaterial" reverse-reference="conditions"/>
+        <collection name="treatments" referenced-type="StormOmicsTreatment" reverse-reference="conditions"/>
+        <collection name="samples" referenced-type="StormOmicsSample" reverse-reference="condition"/>
+    </class>
+
+    <class name="StormOmicsSample" is-interface="true">
+      <reference name="experiment" referenced-type="StormOmicsExperiment" reverse-reference="samples"/>
+      <reference name="condition" referenced-type="StormOmicsCondition" reverse-reference="samples"/>
+      <attribute name="name" type="java.lang.String"/>
+      <attribute name="file" type="java.lang.String"/>
+      <attribute name="label" type="java.lang.String"/>
+      <attribute name="bioReplicate" type="java.lang.String"/>
     </class>
 </classes>
