@@ -58,7 +58,8 @@ subprojects {
         bioModel group: 'org.intermine', name: 'bio-model', version: bioVersion, transitive: false
     }
 
-    if (it.name == 'bio-source-storm-proteomics') {
+    // allow reusing helper classes across sources:
+    if ((it.name == 'bio-source-storm-proteomics') || (it.name == 'bio-source-depmap-ccle')) {
         dependencies {compile project(':bio-source-storm-rnaseq-data')}
     }
 
