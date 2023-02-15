@@ -15,11 +15,10 @@ import java.io.FileReader;
 import java.io.Reader;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
-// @TODO: replace with javafx.util.Pair (requires additional dependency)?
-import java.util.AbstractMap.SimpleEntry;
 
 import org.apache.log4j.Logger;
 
@@ -33,7 +32,7 @@ import org.intermine.xml.full.Item;
  * Read data from DepMap/CCLE
  * @author Hendrik Weisser
  */
-public class DepmapCCLEConverter extends BioDirectoryConverter
+public class DepMapCCLEConverter extends BioDirectoryConverter
 {
     //
     private static final String DATASET_TITLE = "DepMap/CCLE data";
@@ -45,11 +44,11 @@ public class DepmapCCLEConverter extends BioDirectoryConverter
     private static final String COPY_NUMBER_FILE = "CCLE_gene_cn.csv";
     private static final String CRISPR_FILE = "CRISPR_gene_effect.csv";
 
-    private static final Logger LOG = Logger.getLogger(DepmapCCLEConverter.class);
+    private static final Logger LOG = Logger.getLogger(DepMapCCLEConverter.class);
 
     protected GeneLookup geneLookup;
     // mapping: cell line -> gene -> data ('DepMapCCLEData' item)
-    protected Map<String, Map<String, Item>> cellLineData = new HashMap<String, HashMap<>>();
+    protected Map<String, HashMap<String, Item>> cellLineData = new HashMap<String, HashMap<String, Item>>();
     protected Map<String, Item> cellLines = new HashMap<String, Item>();
 
     /**
@@ -57,7 +56,7 @@ public class DepmapCCLEConverter extends BioDirectoryConverter
      * @param writer the ItemWriter used to handle the resultant items
      * @param model the Model
      */
-    public DepmapCcleMatrixConverter(ItemWriter writer, Model model) {
+    public DepMapCCLEConverter(ItemWriter writer, Model model) {
         super(writer, model, DATA_SOURCE_NAME, DATASET_TITLE);
     }
 
@@ -67,7 +66,7 @@ public class DepmapCCLEConverter extends BioDirectoryConverter
      * {@inheritDoc}
      */
     public void process(File dataDir) throws Exception {
-        geneLookup = new GeneLookup();
+        geneLookup = new GeneLookup(this);
         readSampleInfo(new File(dataDir, SAMPLE_INFO_FILE));
         readDataMatrix(new File(dataDir, EXPRESSION_FILE), "", "geneExpression");
         readDataMatrix(new File(dataDir, COPY_NUMBER_FILE), "", "copyNumber");
@@ -75,7 +74,7 @@ public class DepmapCCLEConverter extends BioDirectoryConverter
     }
 
 
-    private void readSampleInfo(File inputPath) throws RuntimeException {
+    private void readSampleInfo(File inputPath) throws Exception {
         if (!inputPath.exists()) {
             throw new RuntimeException("DepMap/CCLE sample info file not found: " + inputPath);
         }
@@ -99,7 +98,7 @@ public class DepmapCCLEConverter extends BioDirectoryConverter
         }
         for (Map.Entry<String, Integer> entry : columnIndexes.entrySet()) {
             if (entry.getValue() == null) {
-                LOG.warning("Column name not found in DepMap/CCLE sample info file: " + entry.getKey());
+                LOG.warn("Column name not found in DepMap/CCLE sample info file: " + entry.getKey());
             }
         }
 
@@ -119,26 +118,26 @@ public class DepmapCCLEConverter extends BioDirectoryConverter
                 }
             }
             cellLines.put(line[0], cellLine);
+        }
 
-            for (Item cellLine : cellLines.values()) {
-                if (cellLine.hasAttribute("parentDepmapId")) { // create proper reference to parent cell line
-                    String parentId = cellLine.getAttribute("parentDepmapId").getValue();
-                    Item parentLine = cellLines.get(parentId);
-                    if (parentLine != null) {
-                        cellLine.setReference("parentCellLine", parentLine);
-                    }
-                    else {
-                        LOG.warning("Parent cell line not found: " + parentId);
-                    }
-                    cellLine.removeAttribute("parentDepmapId");
+        for (Item cellLine : cellLines.values()) {
+            if (cellLine.hasAttribute("parentDepmapId")) { // create proper reference to parent cell line
+                String parentId = cellLine.getAttribute("parentDepmapId").getValue();
+                Item parentLine = cellLines.get(parentId);
+                if (parentLine != null) {
+                    cellLine.setReference("parentCellLine", parentLine);
                 }
-                store(cellLine);
+                else {
+                    LOG.warn("Parent cell line not found: " + parentId);
+                }
+                cellLine.removeAttribute("parentDepmapId");
             }
+            store(cellLine);
         }
     }
 
 
-    private void readDataMatrix(File inputPath, String headerStart, String outputAttribute) throws RuntimeException {
+    private void readDataMatrix(File inputPath, String headerStart, String outputAttribute) throws Exception {
         if (!inputPath.exists()) {
             throw new RuntimeException("DepMap/CCLE input file not found: " + inputPath);
         }
@@ -152,7 +151,7 @@ public class DepmapCCLEConverter extends BioDirectoryConverter
             throw new RuntimeException("Unexpected item at start of input file");
         }
         // NCBI IDs for genes corresponding to columns in the data matrix; null if gene not found:
-        String[] geneIDs() = new String[header.length - 1];
+        String[] geneIDs = new String[header.length - 1];
         for (int i = 1; i < header.length; i++) {
             // expected format: "symbol (ID)", or just "ID"
             String[] parts = header[i].split(" ", 2); // "2" means "max. one split"
@@ -170,19 +169,19 @@ public class DepmapCCLEConverter extends BioDirectoryConverter
                 continue;
             }
             Item geneItem;
-            if (id.startswith("ENSG")) {
+            if (id.startsWith("ENSG")) {
                 geneItem = geneLookup.getGene(null, id, symbol);
                 geneIDs[i - 1] = geneItem.getAttribute("primaryIdentifier").getValue();
             }
             else {
-                LOG.warning("Unexpected gene ID format: " + id + " - skipping");
+                LOG.warn("Unexpected gene ID format: " + id + " - skipping");
             }
         }
         // check for duplicate gene IDs:
         Set<String> geneIDSet = new HashSet<String>();
         for (int i = 0; i < geneIDs.length; i++) {
             if (!geneIDSet.add(geneIDs[i])) {
-                LOG.warning("Duplicate gene ID found: " + geneIDs[i] + " - removing");
+                LOG.warn("Duplicate gene ID found: " + geneIDs[i] + " - removing");
                 geneIDs[i] = null;
             }
         }
@@ -195,7 +194,7 @@ public class DepmapCCLEConverter extends BioDirectoryConverter
             }
             String cellLine = line[0];
             if (!cellLines.containsKey(cellLine)) {
-                LOG.warning("Cell line not found: " + cellLine + " - skipping");
+                LOG.warn("Cell line not found: " + cellLine + " - skipping");
                 continue;
             }
             HashMap<String, Item> geneData = cellLineData.get(cellLine);
