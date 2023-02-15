@@ -234,8 +234,10 @@ public class StormProteomicsConverter extends BioDirectoryConverter
         }
         // trailing column names are condition names:
         for (int i = expectedHeader.length; i < header.length; i++) {
-            if (!metadata.conditions.containsKey(header[i])) {
-                throw new RuntimeException("Condition name not found in metadata: " + header[i]);
+            // spaces in condition names are replaced when metadata is read from YAML:
+            String condition = header[i].replace(' ', '_');
+            if (!metadata.conditions.containsKey(condition)) {
+                throw new RuntimeException("Condition name not found in metadata: " + condition);
             }
         }
         // "Label" column contains conditions (treatment/control) separated by "-";
@@ -271,9 +273,10 @@ public class StormProteomicsConverter extends BioDirectoryConverter
             Item result = createItem("ProteomicsMSstatsResult");
             result.setReference("experiment", experiment);
             result.setReference("proteinGroup", group);
-            SimpleEntry<Item, Item> conditionPair = conditionPairs.get(line[1]);
+            String conditionLabel = line[1].replace(' ', '_');
+            SimpleEntry<Item, Item> conditionPair = conditionPairs.get(conditionLabel);
             if (conditionPair == null) {
-                throw new RuntimeException("Failed to resolve conditions in 'Label' column: " + line[1]);
+                throw new RuntimeException("Failed to resolve conditions in 'Label' column: " + conditionLabel);
             }
             result.setReference("conditionTreatment", conditionPair.getKey());
             result.setReference("conditionControl", conditionPair.getValue());
