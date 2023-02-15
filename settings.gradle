@@ -41,7 +41,7 @@ include ':bio-source-storm-aelian-data-converter'
 project(':bio-source-storm-aelian-data-converter').projectDir = new File(settingsDir, './storm-aelian-data-converter')
 include ':bio-source-aelian_example_converter'
 project(':bio-source-aelian_example_converter').projectDir = new File(settingsDir, './aelian_example_converter')
+include ':bio-source-depmap-ccle'
+project(':bio-source-depmap-ccle').projectDir = new File(settingsDir, './depmap-ccle')
 include ':bio-source-storm-proteomics'
 project(':bio-source-storm-proteomics').projectDir = new File(settingsDir, './storm-proteomics')
-include ':bio-source-depmap-ccle-matrix'
-project(':bio-source-depmap-ccle-matrix').projectDir = new File(settingsDir, './depmap-ccle-matrix')
