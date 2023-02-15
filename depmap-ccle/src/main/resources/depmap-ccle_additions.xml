@@ -6,13 +6,41 @@
         <reference name="cellLine" referenced-type="CellLine" reverse-reference="depMapCCLEData"/>
         <reference name="gene" referenced-type="Gene" reverse-reference="depMapCCLEData"/>
         <attribute name="crisprGeneEffect" type="java.lang.Double"/>
+        <attribute name="rnaiGeneEffect" type="java.lang.Double"/>
         <attribute name="geneExpression" type="java.lang.Double"/>
         <attribute name="copyNumber" type="java.lang.Double"/>
+        <attribute name="mutationCountDeleterious" type="java.lang.Integer"/>
+        <attribute name="mutationCountHotspotTCGA" type="java.lang.Integer"/>
+        <attribute name="mutationCountHotspotCOSMIC" type="java.lang.Integer"/>
+        <attribute name="mutationCountVariantDamaging" type="java.lang.Integer"/>
+        <attribute name="mutationCountVariantOtherNonconserving" type="java.lang.Integer"/>
+        <attribute name="mutationCountVariantOtherConserving" type="java.lang.Integer"/>
+        <attribute name="mutationCountVariantSilent" type="java.lang.Integer"/>
     </class>
     <class name="Gene" is-interface="true" extends="BioEntity">
         <collection name="depMapCCLEData" referenced-type="DepMapCCLEData" reverse-reference="gene"/>
     </class>
-    <class name="CellLine" is-interface="true" extends="BioEntity">
+    <class name="CellLine" is-interface="true">
+        <attribute name="depMapID" type="java.lang.String"/>
+        <attribute name="name" type="java.lang.String"/>
+        <attribute name="strippedName" type="java.lang.String"/>
+        <attribute name="ccleName" type="java.lang.String"/>
+        <attribute name="alias" type="java.lang.String"/>
+        <attribute name="sex" type="java.lang.String"/>
+        <attribute name="rrid" type="java.lang.String"/>
+        <attribute name="sampleCollectionSite" type="java.lang.String"/>
+        <attribute name="primaryOrMetastasis" type="java.lang.String"/>
+        <attribute name="primaryDisease" type="java.lang.String"/>
+        <attribute name="subtype" type="java.lang.String"/>
+        <attribute name="age" type="java.lang.String"/>
+        <attribute name="lineage" type="java.lang.String"/>
+        <attribute name="lineageSubtype" type="java.lang.String"/>
+        <attribute name="lineageSubSubtype" type="java.lang.String"/>
+        <attribute name="lineageMolecularSubtype" type="java.lang.String"/>
+        <attribute name="defaultGrowthPattern" type="java.lang.String"/>
+        <attribute name="cellosaurusNCItDisease" type="java.lang.String"/>
+        <reference name="parentCellLine" referenced-type="CellLine" reverse-reference="derivedCellLines"/>
+        <collection name="derivedCellLines" referenced-type="CellLine" reverse-reference="parentCellLine"/>
         <collection name="depMapCCLEData" referenced-type="DepMapCCLEData" reverse-reference="cellLine"/>
     </class>
 </classes>
