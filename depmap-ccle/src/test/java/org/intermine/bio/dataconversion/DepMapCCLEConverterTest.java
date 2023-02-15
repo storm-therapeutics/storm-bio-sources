@@ -10,13 +10,13 @@ package org.intermine.bio.dataconversion;
  *
  */
 
-public class DepmapCcleMatrixConverterTest extends ItemsTestCase
+public class DepMapCCLEConverterTest extends ItemsTestCase
 {
     Model model = Model.getInstanceByName("genomic");
-    DepmapCcleMatrixConverter converter;
+    DepMapCCLEConverter converter;
     MockItemWriter itemWriter;
 
-    public DepmapCcleMatrixConverterTest(String arg) {
+    public DepMapCCLEConverterTest(String arg) {
         super(arg);
     }
 
