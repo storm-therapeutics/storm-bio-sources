@@ -77,7 +77,7 @@ public class StormOmicsMetadata
 
 
     /// Convert a string (YAML entry) into an attribute name for an InterMine Item
-    private String convertToAttributeName(String name) {
+    public static String convertToAttributeName(String name) {
         if (name.isEmpty())
             return name;
         StringBuilder builder = new StringBuilder();
