@@ -90,17 +90,16 @@ public class DepMapCCLEConverter extends BioDirectoryConverter
         readRNAiData(new File(dataDir, RNAI_FILE));
         readMutationData(new File(dataDir, MUTATIONS_FILE));
 
-        // store data (cell lines are already done):
-        Set<String> geneIDSet = new HashSet<String>();
+        // store data:
+        LOG.info("Storing DepMap/CCLE data...");
+        for (Item cellLine : cellLines.values()) {
+            store(cellLine);
+        }
         for (Map.Entry<String, HashMap<String, Item>> entry1 : cellLineData.entrySet()) {
             Item cellLine = cellLines.get(entry1.getKey());
             for (Map.Entry<String, Item> entry2 : entry1.getValue().entrySet()) {
-                String geneID = entry2.getKey();
-                Item gene = geneLookup.getGene(geneID);
-                // store each gene only once:
-                if (!geneIDSet.add(geneID)) {
-                    store(gene);
-                }
+                // this creates and stores the gene Item (if it doesn't exist yet):
+                Item gene = geneLookup.getGene(entry2.getKey());
                 Item data = entry2.getValue();
                 data.setReference("cellLine", cellLine);
                 data.setReference("gene", gene);
@@ -133,26 +132,32 @@ public class DepMapCCLEConverter extends BioDirectoryConverter
         for (int i = 0; i < header.length; i++) {
             columnIndexes.replace(header[i], i);
         }
-        for (Map.Entry<String, Integer> entry : columnIndexes.entrySet()) {
+        // any missing columns?
+        Iterator<Map.Entry<String, Integer>> entryIter = columnIndexes.entrySet().iterator();
+        while (entryIter.hasNext()) {
+            Map.Entry<String, Integer> entry = entryIter.next();
             if (entry.getValue() == null) {
                 LOG.warn("Column name not found in DepMap/CCLE sample info file: " + entry.getKey());
+                entryIter.remove();
             }
         }
 
+        Map<String, String> parentCellLines = new HashMap<String, String>();
         while (lineIter.hasNext()) {
             String[] line = lineIter.next();
             if (line.length != header.length) {
                 throw new RuntimeException("Unexpected number of items per line");
             }
-            Item cellLine = createItem("cellLine");
+            Item cellLine = createItem("CellLine");
             for (Map.Entry<String, Integer> entry : columnIndexes.entrySet()) {
                 int index = entry.getValue();
                 String value = line[index];
                 if (!value.isEmpty()) {
-                    if (value.startsWith("\"")) { // strip quotes, if necessary
-                        value = value.substring(1, value.length() - 1);
-                    }
                     String name = entry.getKey();
+                    if (name.equals("parent_depmap_id")) { // special case
+                        parentCellLines.put(line[0], value);
+                        continue;
+                    }
                     // use better attribute names:
                     if (name.equals("cell_line_name"))
                         name = "name";
@@ -173,20 +178,16 @@ public class DepMapCCLEConverter extends BioDirectoryConverter
                 cellLineCCLENames.put(line[index], line[0]);
             }
         }
-
-        for (Item cellLine : cellLines.values()) {
-            if (cellLine.hasAttribute("parentDepmapId")) { // create proper reference to parent cell line
-                String parentId = cellLine.getAttribute("parentDepmapId").getValue();
-                Item parentLine = cellLines.get(parentId);
-                if (parentLine != null) {
-                    cellLine.setReference("parentCellLine", parentLine);
-                }
-                else {
-                    LOG.warn("Parent cell line not found: " + parentId);
-                }
-                cellLine.removeAttribute("parentDepmapId");
+        // handle references to parent cell lines after all cell line Items have been created:
+        for (Map.Entry<String, String> entry : parentCellLines.entrySet()) {
+            Item cellLine = cellLines.get(entry.getKey());
+            Item parentLine = cellLines.get(entry.getValue());
+            if (parentLine == null) {
+                LOG.warn("No data for parent cell line " + entry.getValue() + " of cell line " + entry.getKey());
             }
-            store(cellLine);
+            else {
+                cellLine.setReference("parentCellLine", parentLine);
+            }
         }
     }
 
@@ -296,12 +297,24 @@ public class DepMapCCLEConverter extends BioDirectoryConverter
         // gene data maps for cell lines in columns:
         List<HashMap<String, Item>> rnaiGeneData = new ArrayList<HashMap<String, Item>>(header.length - 1);
         for (int i = 1; i < header.length; i++) {
-            String ccleName = header[i].substring(1, header[i].length() - 1); // strip quotes
+            String ccleName = header[i];
+            // special cases where names don't quite match the sample info file:
+            // (note: "KP1NL_PANCREAS" is not the same as "KP1N_PANCREAS")
+            if (ccleName.equals("AZ521_STOMACH"))
+                ccleName = "AZ521_SMALL_INTESTINE";
+            else if (ccleName.equals("GISTT1_GASTROINTESTINAL_TRACT"))
+                ccleName = "GISTT1_STOMACH";
+            else if (ccleName.equals("MB157_BREAST"))
+                ccleName = "MDAMB157_BREAST";
+            else if (ccleName.equals("SW527_BREAST"))
+                ccleName = "SW527_LARGE_INTESTINE";
+
             String cellLine = cellLineCCLENames.get(ccleName); // null if not found
             if (cellLine != null) {
                 rnaiGeneData.add(cellLineData.get(cellLine));
             }
             else {
+                LOG.warn("Cell line not found: " + ccleName + " - skipping");
                 rnaiGeneData.add(null);
             }
         }
@@ -314,9 +327,13 @@ public class DepMapCCLEConverter extends BioDirectoryConverter
             }
 
             String geneID = line[0].split(" ")[1];
-            geneID = geneID.substring(1, geneID.length() - 2); // strip brackets and closing quote
+            geneID = geneID.substring(1, geneID.length() - 1); // strip brackets
+            if (geneID.contains("&")) {
+                LOG.warn("Fusion gene not supported: " + line[0] + " - skipping");
+                continue;
+            }
             if (!geneIDSet.add(geneID)) {
-                LOG.warn("Duplicate gene ID found: " + geneID + " - skipping");
+                LOG.warn("Duplicate gene ID in: " + line[0] + " - skipping");
                 continue;
             }
 
