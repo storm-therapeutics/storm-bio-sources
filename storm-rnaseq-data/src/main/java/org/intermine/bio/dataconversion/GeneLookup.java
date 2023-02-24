@@ -65,12 +65,27 @@ public class GeneLookup
         return (s != null) && !s.isEmpty() && !s.equals("NA");
     }
 
-    public Item getGene(String ncbiId) throws ObjectStoreException {
+    /**
+     * Write all gene Items in the lookup table to the database
+     */
+    public void storeAllGeneItems() throws ObjectStoreException {
+        for (Item gene : geneItems.values()) {
+            converter.store(gene);
+        }
+    }
+
+    /**
+     * Look up a gene by primary identifier (NCBI ID)
+     *
+     * If a gene with this primary identifier was looked up before, the corresponding stored Item is returned.
+     * Otherwise a new Item will be created, added to the look-up table, and returned.
+     */
+    public Item getGene(String ncbiId) {
+        // TODO: check if 'ncbiId' is a valid primary ID using IdResolver?
         Item gene = geneItems.get(ncbiId);
         if (gene == null) {
             gene = converter.createItem("Gene");
             gene.setAttribute("primaryIdentifier", ncbiId);
-            converter.store(gene);
             geneItems.put(ncbiId, gene);
         }
         return gene;
@@ -82,7 +97,7 @@ public class GeneLookup
      * Return the Item for the gene, or 'null' if not found.
      * Create new entries in the lookup tables the first time each piece of information is looked up.
      */
-    public Item getGene(String ncbiId, String ensemblId, String symbol) throws ObjectStoreException {
+    public Item getGene(String ncbiId, String ensemblId, String symbol) {
         // NCBI ID given? - if yes, use it directly as primary identifier for the gene:
         if (isValid(ncbiId)) {
             return getGene(ncbiId);

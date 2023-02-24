@@ -104,6 +104,10 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
                 throw new RuntimeException("Error storing StormRNASeqExperiment ", e);
             }
         }
+        // store all genes that were looked up:
+        for (GeneLookup lookup : geneLookups.values()) {
+            lookup.storeAllGeneItems();
+        }
     }
 
     private Map<String, Integer> getColumnIndexes(String[] header) {
