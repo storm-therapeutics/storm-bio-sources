@@ -41,24 +41,18 @@ public class DepMapCCLEConverter extends BioDirectoryConverter
     private static final String DATA_SOURCE_NAME = "DepMap";
     private static final String HUMAN_TAXON_ID = "9606";
 
-    private static final String SAMPLE_INFO_FILE = "sample_info.csv";
-    private static final String EXPRESSION_FILE = "CCLE_expression.csv";
-    private static final String COPY_NUMBER_FILE = "CCLE_gene_cn.csv";
-    private static final String CRISPR_FILE = "CRISPR_gene_effect.csv";
+    private static final String CELL_LINES_FILE = "Model.csv";
+    private static final String CRISPR_FILE = "CRISPRGeneEffect.csv";
     private static final String RNAI_FILE = "D2_combined_gene_dep_scores.csv";
-    private static final String MUTATIONS_FILE = "CCLE_mutations.csv";
+    private static final String EXPRESSION_FILE = "OmicsExpressionProteinCodingGenesTPMLogp1.csv";
+    private static final String COPY_NUMBER_FILE = "OmicsCNGene.csv";
+    private static final String DAMAGING_MUT_FILE = "OmicsSomaticMutationsMatrixDamaging.csv";
+    private static final String HOTSPOT_MUT_FILE = "OmicsSomaticMutationsMatrixHotspot.csv";
+    private static final String CRISPR_PRED_FILE = "Chronos_Combined_predictability_results.csv";
+    private static final String RNAI_PRED_FILE = "RNAi_merged_predictability_results.csv";
+
 
     private static final Logger LOG = Logger.getLogger(DepMapCCLEConverter.class);
-
-    private class MutationCounts {
-        public int deleterious;
-        public int tcga;
-        public int cosmic;
-        public int damaging;
-        public int nonconserving;
-        public int conserving;
-        public int silent;
-    };
 
     protected GeneLookup geneLookup;
     // mapping: cell line -> gene -> data ('DepMapCCLEData' item)
@@ -83,12 +77,14 @@ public class DepMapCCLEConverter extends BioDirectoryConverter
      */
     public void process(File dataDir) throws Exception {
         geneLookup = new GeneLookup(this);
-        readSampleInfo(new File(dataDir, SAMPLE_INFO_FILE));
-        readDataMatrix(new File(dataDir, EXPRESSION_FILE), "", "geneExpression");
-        readDataMatrix(new File(dataDir, COPY_NUMBER_FILE), "", "copyNumber");
-        readDataMatrix(new File(dataDir, CRISPR_FILE), "DepMap_ID", "crisprGeneEffect");
+        readCellLineInfo(new File(dataDir, CELL_LINES_FILE));
+        readDataMatrix(new File(dataDir, EXPRESSION_FILE), "geneExpression", null);
+        readDataMatrix(new File(dataDir, COPY_NUMBER_FILE), "copyNumber", null);
+        readDataMatrix(new File(dataDir, CRISPR_FILE), "crisprGeneEffect", null);
+        // TODO: convert mutation values (expected: 0.0, 1.0, 2.0) to integer
+        readDataMatrix(new File(dataDir, DAMAGING_MUT_FILE), "hasDamagingMutation", "0.0");
+        readDataMatrix(new File(dataDir, HOTSPOT_MUT_FILE), "hasHotspotMutation", "0.0");
         readRNAiData(new File(dataDir, RNAI_FILE));
-        readMutationData(new File(dataDir, MUTATIONS_FILE));
 
         // store data:
         LOG.info("Storing DepMap/CCLE data...");
@@ -107,23 +103,84 @@ public class DepMapCCLEConverter extends BioDirectoryConverter
             }
             entry1.getValue().clear(); // free up space
         }
+        // do this last to include genes that were just looked up above:
+        geneLookup.storeAllGeneItems();
     }
 
 
-    private void readSampleInfo(File inputPath) throws Exception {
+    private void readCellLineInfo(File inputPath) throws Exception {
         if (!inputPath.exists()) {
-            throw new RuntimeException("DepMap/CCLE sample info file not found: " + inputPath);
+            throw new RuntimeException("DepMap/CCLE cell line info file not found: " + inputPath);
         }
-        LOG.info("Processing DepMap/CCLE sample information file: " + inputPath);
+        LOG.info("Processing DepMap/CCLE cell line info file: " + inputPath);
         FileReader reader = new FileReader(inputPath);
         Iterator<String[]> lineIter = FormattedTextParser.parseCsvDelimitedReader(reader);
 
+        // file header:
+        // ModelID,PatientID,CellLineName,StrippedCellLineName,Age,SourceType,SangerModelID,RRID,DepmapModelType,GrowthPattern,MolecularSubtype,PrimaryOrMetastasis,SampleCollectionSite,Sex,SourceDetail,CatalogNumber,CCLEName,COSMICID,PublicComments,WTSIMasterCellID,OncotreeCode,OncotreeSubtype,OncotreePrimaryDisease,OncotreeLineage
         // we're only interested in some of the columns:
-        String[] expectedColumns = {"DepMap_ID", "cell_line_name", "stripped_cell_line_name", "CCLE_Name", "alias",
-                                    "sex", "RRID", "sample_collection_site", "primary_or_metastasis",
-                                    "primary_disease", "Subtype", "age", "lineage", "lineage_subtype",
-                                    "lineage_sub_subtype", "lineage_molecular_subtype", "default_growth_pattern",
-                                    "parent_depmap_id", "Cellosaurus_NCIt_disease"};
+        Map<Integer, String> columnIndexes = new HashMap<Integer, String>(15);
+        columnIndexes.put(0, "ModelID");
+        columnIndexes.put(2, "CellLineName");
+        columnIndexes.put(3, "StrippedCellLineName");
+        columnIndexes.put(4, "Age");
+        columnIndexes.put(7, "RRID");
+        columnIndexes.put(8, "DepmapModelType");
+        columnIndexes.put(9, "GrowthPattern");
+        columnIndexes.put(10, "MolecularSubtype");
+        columnIndexes.put(11, "PrimaryOrMetastasis");
+        columnIndexes.put(12, "SampleCollectionSite");
+        columnIndexes.put(13, "Sex");
+        columnIndexes.put(16, "CCLEName");
+        columnIndexes.put(21, "OncotreeSubtype");
+        columnIndexes.put(22, "OncotreePrimaryDisease");
+        columnIndexes.put(23, "OncotreeLineage");
+        String[] header = lineIter.next();
+        if (header.length < 24) {
+            throw new RuntimeException("Unexpected end of header in DepMap/CCLE cell line info file");
+        }
+        for (Map.Entry<Integer, String> entry : columnIndexes.entrySet()) {
+            int index = entry.getKey();
+            if (!header[index].equals(entry.getValue())) {
+                throw new RuntimeException("Unexpected entry at pos. " + index +
+                                           " in header of DepMap/CCLE cell line info file: " + header[index]);
+            }
+        }
+        // replace column names with attribute names:
+        columnIndexes.replace(0, "depmapID");
+        columnIndexes.replace(2, "name");
+        columnIndexes.replace(3, "strippedName");
+        columnIndexes.put(7, "rrid");
+        columnIndexes.put(16, "ccleName");
+        // lowercase first character:
+        columnIndexes.replaceAll((key, value) ->
+                                 value.substring(0, 1).toLowerCase() + value.substring(1));
+
+        while (lineIter.hasNext()) {
+            String[] line = lineIter.next();
+            if (line.length != header.length) {
+                throw new RuntimeException("Unexpected number of items per line");
+            }
+            Item cellLine = createItem("CellLine");
+            for (Map.Entry<Integer, String> entry : columnIndexes.entrySet()) {
+                int index = entry.getKey();
+                String value = line[index];
+                if (!value.isEmpty()) {
+                    String name = entry.getValue();
+                    cellLine.setAttribute(name, value);
+                }
+            }
+            cellLines.put(line[0], cellLine);
+            if (!line[16].isEmpty()) { // "CCLEName" entry
+                cellLineCCLENames.put(line[16], line[0]);
+            }
+        }
+
+        /*
+        String[] expectedColumns = {"ModelID", "CellLineName", "StrippedCellLineName", "Age", "RRID",
+                                    "DepmapModelType", "GrowthPattern", "MolecularSubtype", "PrimaryOrMetastasis",
+                                    "SampleCollectionSite", "Sex", "CCLEName", "OncotreeSubtype",
+                                    "OncotreePrimaryDisease", "OncotreeLineage"};
         Map<String, Integer> columnIndexes = new HashMap<String, Integer>(expectedColumns.length);
         for (String colName : expectedColumns) {
             columnIndexes.put(colName, null);
@@ -137,58 +194,11 @@ public class DepMapCCLEConverter extends BioDirectoryConverter
         while (entryIter.hasNext()) {
             Map.Entry<String, Integer> entry = entryIter.next();
             if (entry.getValue() == null) {
-                LOG.warn("Column name not found in DepMap/CCLE sample info file: " + entry.getKey());
+                LOG.warn("Column name not found in DepMap/CCLE cell line info file: " + entry.getKey());
                 entryIter.remove();
             }
         }
-
-        Map<String, String> parentCellLines = new HashMap<String, String>();
-        while (lineIter.hasNext()) {
-            String[] line = lineIter.next();
-            if (line.length != header.length) {
-                throw new RuntimeException("Unexpected number of items per line");
-            }
-            Item cellLine = createItem("CellLine");
-            for (Map.Entry<String, Integer> entry : columnIndexes.entrySet()) {
-                int index = entry.getValue();
-                String value = line[index];
-                if (!value.isEmpty()) {
-                    String name = entry.getKey();
-                    if (name.equals("parent_depmap_id")) { // special case
-                        parentCellLines.put(line[0], value);
-                        continue;
-                    }
-                    // use better attribute names:
-                    if (name.equals("cell_line_name"))
-                        name = "name";
-                    else if (name.equals("stripped_cell_line_name"))
-                        name = "strippedName";
-                    else if (name.equals("CCLE_Name"))
-                        name = "ccleName";
-                    else if (name.equals("RRID"))
-                        name = "rrid";
-                    else
-                        name = StormOmicsMetadata.convertToAttributeName(name.replace('_', ' '));
-                    cellLine.setAttribute(name, value);
-                }
-            }
-            cellLines.put(line[0], cellLine);
-            int index = columnIndexes.get("CCLE_Name");
-            if (!line[index].isEmpty()) {
-                cellLineCCLENames.put(line[index], line[0]);
-            }
-        }
-        // handle references to parent cell lines after all cell line Items have been created:
-        for (Map.Entry<String, String> entry : parentCellLines.entrySet()) {
-            Item cellLine = cellLines.get(entry.getKey());
-            Item parentLine = cellLines.get(entry.getValue());
-            if (parentLine == null) {
-                LOG.warn("No data for parent cell line " + entry.getValue() + " of cell line " + entry.getKey());
-            }
-            else {
-                cellLine.setReference("parentCellLine", parentLine);
-            }
-        }
+        */
     }
 
 
@@ -197,7 +207,7 @@ public class DepMapCCLEConverter extends BioDirectoryConverter
      *
      * Cell lines are in rows, genes are in columns.
      */
-    private void readDataMatrix(File inputPath, String headerStart, String outputAttribute) throws Exception {
+    private void readDataMatrix(File inputPath, String outputAttribute, String exclude) throws Exception {
         if (!inputPath.exists()) {
             throw new RuntimeException("DepMap/CCLE input file not found: " + inputPath);
         }
@@ -207,10 +217,8 @@ public class DepMapCCLEConverter extends BioDirectoryConverter
 
         // parse header with gene symbols and IDs:
         String[] header = lineIter.next();
-        if ((headerStart != null) && !header[0].equals(headerStart)) {
-            throw new RuntimeException("Unexpected item at start of input file");
-        }
         // NCBI IDs for genes corresponding to columns in the data matrix; null if gene not found:
+        // (first column is DepMap IDs of cell lines)
         String[] geneIDs = new String[header.length - 1];
         for (int i = 1; i < header.length; i++) {
             // expected format: "symbol (ID)", or just "ID"
@@ -220,27 +228,31 @@ public class DepMapCCLEConverter extends BioDirectoryConverter
             if (parts.length == 2) {
                 symbol = parts[0];
                 id = parts[1].substring(1, parts[1].length() - 1); // remove brackets
+                if (id.equals("nan"))
+                    id = null;
             }
-            else {
-                id = parts[0];
+            else { // only one part
+                if (parts[0].startsWith("ENSG"))
+                    id = parts[0];
+                else
+                    symbol = parts[0];
             }
-            if (id.matches("\\d+")) { // all numeric -> NCBI ID
+            if ((id != null) && id.matches("\\d+")) { // all numeric -> NCBI ID
                 geneIDs[i - 1] = id;
                 continue;
             }
-            Item geneItem;
-            if (id.startsWith("ENSG")) {
-                geneItem = geneLookup.getGene(null, id, symbol);
+            Item geneItem = geneLookup.getGene(null, id, symbol);
+            if (geneItem != null) {
                 geneIDs[i - 1] = geneItem.getAttribute("primaryIdentifier").getValue();
             }
             else {
-                LOG.warn("Unexpected gene ID format: " + id + " - skipping");
+                LOG.warn("Could not resolve gene: " + header[i] + " - skipping");
             }
         }
         // check for duplicate gene IDs:
         Set<String> geneIDSet = new HashSet<String>();
         for (int i = 0; i < geneIDs.length; i++) {
-            if (!geneIDSet.add(geneIDs[i])) {
+            if ((geneIDs[i] != null) && !geneIDSet.add(geneIDs[i])) {
                 LOG.warn("Duplicate gene ID found: " + geneIDs[i] + " - removing");
                 geneIDs[i] = null;
             }
@@ -265,7 +277,8 @@ public class DepMapCCLEConverter extends BioDirectoryConverter
 
             for (int i = 1; i < line.length; i++) {
                 String geneID = geneIDs[i - 1];
-                if ((geneID != null) && !line[i].isEmpty()) {
+                // skip missing genes and empty/"uninformative" values:
+                if ((geneID != null) && !line[i].isEmpty() && ((exclude == null) || !line[i].equals(exclude))) {
                     Item dataItem = geneData.get(geneID);
                     if (dataItem == null) {
                         dataItem = createItem("DepMapCCLEData");
@@ -347,96 +360,6 @@ public class DepMapCCLEConverter extends BioDirectoryConverter
                         dataItem.setAttribute("rnaiGeneEffect", line[i]);
                     }
                 }
-            }
-        }
-    }
-
-
-    private void readMutationData(File inputPath) throws Exception {
-        if (!inputPath.exists()) {
-            LOG.warn("DepMap/CCLE mutations file not found: " + inputPath);
-            return;
-        }
-        LOG.info("Processing DepMap/CCLE mutations input file: " + inputPath);
-        FileReader reader = new FileReader(inputPath);
-        Iterator<String[]> lineIter = FormattedTextParser.parseCsvDelimitedReader(reader);
-
-        List<String> headerList = Arrays.asList(lineIter.next());
-        int geneIndex = headerList.indexOf("Entrez_Gene_Id");
-        int cellLineIndex = headerList.indexOf("DepMap_ID");
-        int deleteriousIndex = headerList.indexOf("isDeleterious");
-        int tcgaIndex = headerList.indexOf("isTCGAhotspot");
-        int cosmicIndex = headerList.indexOf("isCOSMIChotspot");
-        int variantIndex = headerList.indexOf("Variant_annotation");
-
-        if ((geneIndex < 0) || (cellLineIndex < 0) || (deleteriousIndex < 0) || (tcgaIndex < 0) ||
-            (cosmicIndex < 0) || (variantIndex < 0)) {
-            throw new RuntimeException("Unexpected header in DepMap/CCLE mutations file");
-        }
-
-        // mapping: cell line -> gene -> mutation counts
-        Map<String, HashMap<String, MutationCounts>> cellLineCounts = new HashMap<String, HashMap<String, MutationCounts>>();
-        while (lineIter.hasNext()) {
-            String[] line = lineIter.next();
-            if (line.length != headerList.size()) {
-                throw new RuntimeException("Unexpected number of items per line");
-            }
-            String geneID = line[geneIndex];
-            if (geneID.equals("0"))
-                continue;
-            String cellLine = line[cellLineIndex];
-            HashMap<String, MutationCounts> geneCounts = cellLineCounts.get(cellLine);
-            if (geneCounts == null) {
-                geneCounts = new HashMap<String, MutationCounts>();
-                cellLineCounts.put(cellLine, geneCounts);
-            }
-            MutationCounts counts = geneCounts.get(geneID);
-            if (counts == null) {
-                counts = new MutationCounts();
-                geneCounts.put(geneID, counts);
-            }
-            if (line[deleteriousIndex].equals("True"))
-                counts.deleterious++;
-            if (line[tcgaIndex].equals("True"))
-                counts.tcga++;
-            if (line[cosmicIndex].equals("True"))
-                counts.cosmic++;
-            String variant = line[variantIndex];
-            if (variant.equals("damaging"))
-                counts.damaging++;
-            else if (variant.equals("other non-conserving"))
-                counts.nonconserving++;
-            else if (variant.equals("other conserving"))
-                counts.conserving++;
-            else if (variant.equals("silent"))
-                counts.silent++;
-        }
-
-        // combine mutation data with other data:
-        for (Map.Entry<String, HashMap<String, MutationCounts>> entry1 : cellLineCounts.entrySet()) {
-            HashMap<String, Item> geneData = cellLineData.get(entry1.getKey());
-            if (geneData == null) // no other data for this cell line - skip
-                continue;
-            for (Map.Entry<String, MutationCounts> entry2 : entry1.getValue().entrySet()) {
-                Item data = geneData.get(entry2.getKey());
-                if (data == null) // no other data for this gene - skip (TODO: or not?)
-                    continue;
-                MutationCounts counts = entry2.getValue();
-                if (counts.deleterious > 0)
-                    data.setAttribute("mutationCountDeleterious", String.valueOf(counts.deleterious));
-                if (counts.tcga > 0)
-                    data.setAttribute("mutationCountHotspotTCGA", String.valueOf(counts.tcga));
-                if (counts.cosmic > 0)
-                    data.setAttribute("mutationCountHotspotCOSMIC", String.valueOf(counts.cosmic));
-                if (counts.damaging > 0)
-                    data.setAttribute("mutationCountVariantDamaging", String.valueOf(counts.damaging));
-                if (counts.nonconserving > 0)
-                    data.setAttribute("mutationCountVariantOtherNonconserving",
-                                      String.valueOf(counts.nonconserving));
-                if (counts.conserving > 0)
-                    data.setAttribute("mutationCountVariantOtherConserving", String.valueOf(counts.conserving));
-                if (counts.silent > 0)
-                    data.setAttribute("mutationCountVariantSilent", String.valueOf(counts.silent));
             }
         }
     }
