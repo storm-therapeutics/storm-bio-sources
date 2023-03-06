@@ -85,6 +85,8 @@ public class DepMapCCLEConverter extends BioDirectoryConverter
         readDataMatrix(new File(dataDir, DAMAGING_MUT_FILE), "hasDamagingMutation", "0.0");
         readDataMatrix(new File(dataDir, HOTSPOT_MUT_FILE), "hasHotspotMutation", "0.0");
         readRNAiData(new File(dataDir, RNAI_FILE));
+        readPredictabilityData(new File(dataDir, CRISPR_PRED_FILE), "CRISPR");
+        readPredictabilityData(new File(dataDir, RNAI_PRED_FILE), "RNAi");
 
         // store data:
         LOG.info("Storing DepMap/CCLE data...");
@@ -361,6 +363,39 @@ public class DepMapCCLEConverter extends BioDirectoryConverter
                     }
                 }
             }
+        }
+    }
+
+
+    private void readPredictabilityData(File inputPath, String type) throws Exception {
+        if (!inputPath.exists()) {
+            LOG.warn("DepMap/CCLE " + type + " predictability file not found: " + inputPath);
+            return;
+        }
+        LOG.info("Processing DepMap/CCLE " + type + " predictability input file: " + inputPath);
+        String attribute = "depmap" + type.substring(0, 1).toUpperCase() +
+            type.substring(1).toLowerCase() + "Predictability";
+
+        FileReader reader = new FileReader(inputPath);
+        Iterator<String[]> lineIter = FormattedTextParser.parseCsvDelimitedReader(reader);
+        String[] header = lineIter.next();
+        if ((header.length < 4) || !header[0].equals("gene") || !header[1].equals("model") ||
+            !header[2].equals("pearson") || !header[3].equals("best")) {
+                throw new RuntimeException("Unexpected header format in DepMap/CCLE predictability file");
+        }
+        while (lineIter.hasNext()) {
+            String[] line = lineIter.next();
+            if (line.length != header.length) {
+                throw new RuntimeException("Unexpected number of items per line");
+            }
+            if (!line[3].equals("True")) // is this the best model for the gene?
+                continue;
+            // gene column format: "symbol (ID)"
+            String geneID = line[0].split(" ")[1];
+            geneID = geneID.substring(1, geneID.length() - 1); // remove brackets
+            Item gene = geneLookup.getGene(geneID);
+            if (gene != null)
+                gene.setAttribute(attribute, line[2]);
         }
     }
 }
