@@ -46,20 +46,28 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
     }
 
     public void process(File dataDir) throws Exception {
-        Map<String, File> directories = readDirectoriesInDir(dataDir);
-
-        // Get all JSON config files in the directory and process one by one
-        File[] jsonFiles = dataDir.listFiles(new FilenameFilter() {
-            @Override
-            public boolean accept(File dir, String name) {
-                return name.endsWith(".json");
+        // loop through subdirectories (corresponding to experiments):
+        for (File subDir : dataDir.listFiles()) {
+            if (!subDir.isDirectory())
+                continue;
+            // get JSON metadata file:
+            File[] jsonFiles = subDir.listFiles(new FilenameFilter() {
+                    @Override
+                    public boolean accept(File dir, String name) {
+                        return name.endsWith(".json");
+                    }
+                });
+            if (jsonFiles.length == 0) {
+                LOG.info("No JSON (metadata) file found in directory '" + subDir.getName() + "' - skipping");
+                continue;
             }
-        });
-
-        for (File jsonFile : jsonFiles) {
+            if (jsonFiles.length > 1) { // TODO: select file with same name as directory?
+                LOG.warn("Multiple JSON files found in directory '" + subDir.getName() + "' - skipping");
+                continue;
+            }
             // read experiment metadata:
             StormOmicsMetadata meta = new StormOmicsMetadata(this);
-            meta.processJSONFile(jsonFile);
+            meta.processJSONFile(jsonFiles[0]);
 
             if (!geneLookups.containsKey(meta.species)) { // does helper class exist already?
                 geneLookups.put(meta.species, new GeneLookup(meta.species, this));
@@ -69,9 +77,7 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
             Item experiment = createItem("StormRNASeqExperiment");
             experiment.setReference("metadata", meta.experiment);
 
-            // find matching results:
-            File experimentDir = new File(dataDir.getAbsolutePath(), meta.experimentShortName);
-            Map<String, File> filesInDir = readFilesInDir(experimentDir);
+            Map<String, File> filesInDir = readFilesInDir(subDir);
 
             // Process differential expression results
             LOG.debug("StormRnaseqDataConverter [process] - processing comparisons: " + meta.experimentShortName);
@@ -79,7 +85,7 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
                 String fileName = comparison.treatment + "_vs_" + comparison.control + "_DESeq2.tsv";
                 File deSeq2File = filesInDir.get(fileName);
                 if (deSeq2File == null) {
-                    LOG.info("Failed to find DESeq2 file: " + fileName);
+                    LOG.warn("Failed to find DESeq2 file: " + fileName);
                     continue;
                 }
                 processRNASeqComparison(deSeq2File, experiment, meta, comparison.treatment, comparison.control);
@@ -92,7 +98,7 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
             if (geneCountsFile != null) {
                 processRNASeqGeneCounts(geneCountsFile, experiment, meta);
             } else {
-                LOG.info("Failed to find feature counts file: " + fileName);
+                LOG.warn("Failed to find feature counts file: " + fileName);
                 // continue; // abort or store experiment without counts?
             }
 
@@ -101,7 +107,7 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
             try {
                 store(experiment);
             } catch (Exception e) {
-                throw new RuntimeException("Error storing StormRNASeqExperiment ", e);
+                throw new RuntimeException("Error storing StormRNASeqExperiment", e);
             }
         }
         // store all genes that were looked up:
@@ -220,7 +226,7 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
         // condition names may appear in altered form:
         Map<String, String> conditionNames = new HashMap<String, String>();
         for (String conditionName : meta.conditions.keySet()) {
-            conditionNames.put(conditionName.replaceAll("-", "."), conditionName);
+            conditionNames.put(conditionName.replace("-", ".").replace("+", "."), conditionName);
         }
 
         // create a template Item for each data column:
