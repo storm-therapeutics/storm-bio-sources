@@ -265,6 +265,7 @@ public class StormOmicsMetadata
                 // Save the item
                 Item conditionItem = converter.createItem("StormOmicsCondition");
                 conditionItem.setAttribute("name", conditionName);
+                conditionItem.setReference("experiment", experiment);
 
                 // exactly one material name per condition:
                 String materialName = condition.getString("material");
