@@ -121,6 +121,9 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
         // ensembl	entrez	symbol	baseMean	log2FoldChange	lfcSE	stat	pvalue	padj
         // Ensembl	Entrez	Gene	Description	baseMean	log2FoldChange	lfcSE	stat	pvalue	padj
         // Gene	Ensembl	Entrez	Description	baseMean	log2FoldChange	lfcSE	stat	pvalue	padj
+        // Ensembl	baseMean	log2FoldChange	lfcSE	stat	pvalue	padj
+
+        // convert header entries to lowercase for consistency:
         ArrayList<String> headerLower = new ArrayList<String>(header.length);
         for (String entry : header) {
             headerLower.add(entry.toLowerCase());
@@ -134,15 +137,16 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
         else if (header.length == 10) {
             symbolIndex = headerLower.indexOf("gene");
         }
-        else {
-            throw new RuntimeException("Unexpected number of columns in DESeq2 file");
-        }
-        if (symbolIndex == -1) {
-            throw new RuntimeException("Column 'Gene'/'symbol' not found in DESeq2 file");
-        }
         indexes.put("symbol", symbolIndex);
-        // check remaining columns (ignore optional "Description"):
-        String[] columns = {"ensembl", "entrez", "baseMean", "log2FoldChange", "lfcSE", "stat", "pvalue", "padj"};
+        int ensemblIndex = headerLower.indexOf("ensembl");
+        indexes.put("ensembl", ensemblIndex);
+        int entrezIndex = headerLower.indexOf("entrez");
+        indexes.put("entrez", entrezIndex);
+        if ((symbolIndex == -1) && (ensemblIndex == -1) && (entrezIndex == -1)) {
+            throw new RuntimeException("No gene identifier column found in DESeq2 file");
+        }
+        // check required columns (from DESeq2):
+        String[] columns = {"baseMean", "log2FoldChange", "lfcSE", "stat", "pvalue", "padj"};
         for (String column : columns) {
             int index = headerLower.indexOf(column.toLowerCase());
             if (index == -1) {
@@ -182,7 +186,10 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
                 continue;
             }
 
-            Item gene = geneLookup.getGene(line[entrezIndex], line[ensemblIndex], line[symbolIndex]);
+            String entrezId = (entrezIndex >= 0) ? line[entrezIndex] : null;
+            String ensemblId = (ensemblIndex >= 0) ? line[ensemblIndex] : null;
+            String symbol = (symbolIndex >= 0) ? line[symbolIndex] : null;
+            Item gene = geneLookup.getGene(entrezId, ensemblId, symbol);
             if (gene == null) // could not find matching gene
                 continue;
 
