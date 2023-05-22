@@ -316,7 +316,10 @@ public class StormRnaseqDataConverter extends BioDirectoryConverter
             String ensemblId = null;
             String symbol = null;
             if (geneColumns == 1) {
-                ensemblId = line[0];
+                if (line[0].startsWith("ENS"))
+                    ensemblId = line[0];
+                else
+                    symbol = line[0];
             }
             else { // geneColumns == 2
                 symbol = line[1];
