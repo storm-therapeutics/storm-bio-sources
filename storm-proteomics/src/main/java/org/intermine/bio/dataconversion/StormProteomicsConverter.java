@@ -47,6 +47,7 @@ public class StormProteomicsConverter extends BioDirectoryConverter
     Map<String, Item> samples = new HashMap<String, Item>();
     Map<String, Item> conditions = new HashMap<String, Item>();
     Map<String, Item> proteinGroups = new HashMap<String, Item>();
+    Map<String, Item> proteins = new HashMap<String, Item>();
 
     /**
      * Constructor
@@ -79,6 +80,7 @@ public class StormProteomicsConverter extends BioDirectoryConverter
                 samples.clear();
                 conditions.clear();
                 proteinGroups.clear();
+                // do not clear "proteins" here (otherwise we get "duplicate objects" error during integration)
                 LOG.info("Processing metadata (JSON) file");
                 metadata = new StormOmicsMetadata(this);
                 metadata.processJSONFile(jsonFile);
@@ -100,15 +102,19 @@ public class StormProteomicsConverter extends BioDirectoryConverter
 
 
     private Item makeProtein(String accession) throws Exception {
+        Item protein = proteins.get(accession);
+        if (protein != null) // has this protein been created/stored already?
+            return protein;
         // parse accession:
         String[] parts = accession.split("\\|");
         if ((parts.length != 3) || (!parts[0].equals("sp") && !parts[0].equals("tr"))) {
             throw new RuntimeException("Unexpected accession format in mzTab file: " + accession);
         }
-        Item protein = createItem("Protein");
+        protein = createItem("Protein");
         protein.setAttribute("primaryIdentifier", parts[2]);
         protein.setAttribute("primaryAccession", parts[1]);
         store(protein);
+        proteins.put(accession, protein);
         return protein;
     }
 
