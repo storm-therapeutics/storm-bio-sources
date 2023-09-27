@@ -119,26 +119,33 @@ public class DepMapCCLEConverter extends BioDirectoryConverter
         Iterator<String[]> lineIter = FormattedTextParser.parseCsvDelimitedReader(reader);
 
         // file header:
+        // DepMap release 22Q4:
         // ModelID,PatientID,CellLineName,StrippedCellLineName,Age,SourceType,SangerModelID,RRID,DepmapModelType,GrowthPattern,MolecularSubtype,PrimaryOrMetastasis,SampleCollectionSite,Sex,SourceDetail,CatalogNumber,CCLEName,COSMICID,PublicComments,WTSIMasterCellID,OncotreeCode,OncotreeSubtype,OncotreePrimaryDisease,OncotreeLineage
+        // DepMap release 23Q2:
+        // ModelID,PatientID,CellLineName,StrippedCellLineName,Age,SourceType,SangerModelID,RRID,DepmapModelType,AgeCategory,GrowthPattern,LegacyMolecularSubtype,PrimaryOrMetastasis,SampleCollectionSite,Sex,SourceDetail,LegacySubSubtype,CatalogNumber,CCLEName,COSMICID,PublicComments,WTSIMasterCellID,EngineeredModel,TreatmentStatus,OnboardedMedia,PlateCoating,OncotreeCode,OncotreeSubtype,OncotreePrimaryDisease,OncotreeLineage
+        // TODO: implement this in a way that is compatible with different formats
+
         // we're only interested in some of the columns:
-        Map<Integer, String> columnIndexes = new HashMap<Integer, String>(15);
+        Map<Integer, String> columnIndexes = new HashMap<Integer, String>(17);
         columnIndexes.put(0, "ModelID");
         columnIndexes.put(2, "CellLineName");
         columnIndexes.put(3, "StrippedCellLineName");
         columnIndexes.put(4, "Age");
+        columnIndexes.put(6, "SangerModelID");
         columnIndexes.put(7, "RRID");
         columnIndexes.put(8, "DepmapModelType");
-        columnIndexes.put(9, "GrowthPattern");
-        columnIndexes.put(10, "MolecularSubtype");
-        columnIndexes.put(11, "PrimaryOrMetastasis");
-        columnIndexes.put(12, "SampleCollectionSite");
-        columnIndexes.put(13, "Sex");
-        columnIndexes.put(16, "CCLEName");
-        columnIndexes.put(21, "OncotreeSubtype");
-        columnIndexes.put(22, "OncotreePrimaryDisease");
-        columnIndexes.put(23, "OncotreeLineage");
+        columnIndexes.put(9, "AgeCategory");
+        columnIndexes.put(10, "GrowthPattern");
+        columnIndexes.put(12, "PrimaryOrMetastasis");
+        columnIndexes.put(13, "SampleCollectionSite");
+        columnIndexes.put(14, "Sex");
+        columnIndexes.put(18, "CCLEName");
+        columnIndexes.put(26, "OncotreeCode");
+        columnIndexes.put(27, "OncotreeSubtype");
+        columnIndexes.put(28, "OncotreePrimaryDisease");
+        columnIndexes.put(29, "OncotreeLineage");
         String[] header = lineIter.next();
-        if (header.length < 24) {
+        if (header.length < 30) {
             throw new RuntimeException("Unexpected end of header in DepMap/CCLE cell line info file");
         }
         for (Map.Entry<Integer, String> entry : columnIndexes.entrySet()) {
@@ -152,8 +159,9 @@ public class DepMapCCLEConverter extends BioDirectoryConverter
         columnIndexes.replace(0, "depmapID");
         columnIndexes.replace(2, "name");
         columnIndexes.replace(3, "strippedName");
-        columnIndexes.put(7, "rrid");
-        columnIndexes.put(16, "ccleName");
+        columnIndexes.replace(6, "sangerID");
+        columnIndexes.replace(7, "rrid");
+        columnIndexes.replace(18, "ccleName");
         // lowercase first character:
         columnIndexes.replaceAll((key, value) ->
                                  value.substring(0, 1).toLowerCase() + value.substring(1));
@@ -173,34 +181,10 @@ public class DepMapCCLEConverter extends BioDirectoryConverter
                 }
             }
             cellLines.put(line[0], cellLine);
-            if (!line[16].isEmpty()) { // "CCLEName" entry
-                cellLineCCLENames.put(line[16], line[0]);
+            if (!line[18].isEmpty()) { // "CCLEName" entry
+                cellLineCCLENames.put(line[18], line[0]);
             }
         }
-
-        /*
-        String[] expectedColumns = {"ModelID", "CellLineName", "StrippedCellLineName", "Age", "RRID",
-                                    "DepmapModelType", "GrowthPattern", "MolecularSubtype", "PrimaryOrMetastasis",
-                                    "SampleCollectionSite", "Sex", "CCLEName", "OncotreeSubtype",
-                                    "OncotreePrimaryDisease", "OncotreeLineage"};
-        Map<String, Integer> columnIndexes = new HashMap<String, Integer>(expectedColumns.length);
-        for (String colName : expectedColumns) {
-            columnIndexes.put(colName, null);
-        }
-        String[] header = lineIter.next();
-        for (int i = 0; i < header.length; i++) {
-            columnIndexes.replace(header[i], i);
-        }
-        // any missing columns?
-        Iterator<Map.Entry<String, Integer>> entryIter = columnIndexes.entrySet().iterator();
-        while (entryIter.hasNext()) {
-            Map.Entry<String, Integer> entry = entryIter.next();
-            if (entry.getValue() == null) {
-                LOG.warn("Column name not found in DepMap/CCLE cell line info file: " + entry.getKey());
-                entryIter.remove();
-            }
-        }
-        */
     }
 
 
