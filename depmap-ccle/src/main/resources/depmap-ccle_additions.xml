@@ -25,7 +25,7 @@
         <attribute name="sangerID" type="java.lang.String"/>
         <attribute name="rrid" type="java.lang.String"/>
         <attribute name="sex" type="java.lang.String"/>
-        <attribute name="age" type="java.lang.Integer"/>
+        <attribute name="age" type="java.lang.Double"/>
         <attribute name="ageCategory" type="java.lang.String"/>
         <attribute name="growthPattern" type="java.lang.String"/>
         <attribute name="sampleCollectionSite" type="java.lang.String"/>
